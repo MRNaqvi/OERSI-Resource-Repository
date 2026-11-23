@@ -1,4 +1,4 @@
-# OERSI Resource Repository — Phase 1: Data Extraction
+# OERSI Resource Repository — Phase 1 and Phase 2
 
 A small, metadata-only Python client for the official OERSI Elasticsearch search API. It stores original API search responses, writes each original OERSI resource as a top-level JSON-LD document, stores derived application metadata separately, and classifies records without downloading PDFs, videos, or course content.
 
@@ -15,7 +15,7 @@ Classification uses exact OERSI type identifiers from the observed `learningReso
 
 - **Courses:** an exact `https://w3id.org/kim/hcrt/course` type ID.
 - **Learning materials:** one or more recognized concrete HCRT types, including observed `video`, `textbook`, `text`, `drill_and_practice`, `worksheet`, `slide`, `audio`, and other explicit content types in `src/classification.py`.
-- **Unclassified:** missing type identifiers, unrecognized types, and ambiguous broad types such as `other`, `portal`, and `web_page` unless the same record also has a recognized concrete material type. An exact course type takes precedence if multiple types are present.
+- **Unclassified:** missing type identifiers, unknown types, and ambiguous broad types such as `other`, `portal`, and `web_page`. A resource with both a recognized course and a recognized material type is also unclassified with an explicit ambiguity reason.
 
 The API's `type: LearningResource` is the general schema type and does not distinguish courses from learning materials; the specific `learningResourceType` IDs provide that distinction. The vocabulary is intentionally allowlisted so new or ambiguous values are not silently assigned.
 
@@ -64,6 +64,68 @@ Run automated tests from the repository root:
 python -m pytest
 ```
 
-## Phase 1 scope
+## Phase 1 extraction scope
 
-Only metadata is extracted. Resource binary/content URLs may be recorded as metadata, but they are never downloaded. The module boundaries (`oersi_client`, `metadata`, `classification`, and `extractor`) are kept separate to support future repository/versioning work without implementing it now.
+Phase 1 extraction remains metadata-only. Resource binary/content URLs may be recorded as metadata, but PDFs, videos, and complete course content are never downloaded. The Phase 1 extraction CLI remains available as `python -m src.cli`; Phase 2 persistence is provided separately by `src.repository` and `python -m src.repository_cli`.
+
+## Phase 2 — Persistent containers and initial versions
+
+Phase 2 adds a Python built-in `sqlite3` repository. The persistent database has exactly two containers (`courses` and `learning_materials`). Unclassified records still receive a stable resource IRI and immutable Version 1 snapshot, but their `container_id` is `NULL` and they are additionally listed in the separate unclassified review table; they are not silently assigned to either container. Each newly imported resource receives one immutable Version 1 snapshot; subsequent changed metadata or classification is recorded as a pending review candidate. Automatic version increments are not implemented.
+
+### Configure and initialize
+
+Set `OERSI_REPOSITORY_BASE_IRI` in `.env` to the namespace your deployment controls. The default `https://example.org/oersi/` is a development example only, not a claim that the domain is owned or dereferenceable. The database stores this namespace and refuses to open it using a different base IRI.
+
+The repository vocabulary defaults to `<base-IRI>/vocab/`. To configure it independently, set `OERSI_REPOSITORY_VOCABULARY_IRI` or pass `--vocabulary-iri URL`; it must be a valid absolute HTTP(S) namespace and is persisted alongside the base IRI. Reopening with a different value is rejected rather than silently changing repository semantics.
+
+```sh
+python -m src.repository_cli init
+```
+
+The default database path is `data/repository.sqlite3`. Override it with `--database PATH`, the namespace with `--base-iri URL`, and the vocabulary with `--vocabulary-iri URL`; global options go before the subcommand. SQLite foreign-key enforcement is enabled for every connection. Composite foreign keys ensure a resource's current version and a version's previous version belong to the same resource. Unclassified rows reference the matching resource and source IRI. Version rows are protected by database triggers against update and delete.
+
+### SQLite schema migration
+
+The integrity review adds composite foreign keys and persisted vocabulary/schema-version configuration. Existing Phase 2 databases do **not** have these constraints; initialization detects their missing `schema_version` and refuses to modify them. No database is automatically reset or migrated. To preserve an existing database, make a verified backup and perform an explicit, reviewed migration that creates new tables with the current schema, copies and validates resources/versions, checks `PRAGMA foreign_key_check`, preserves the stored base and vocabulary IRIs, then atomically swaps the tables. Keep the original file until the migrated copy passes validation. A simple Phase 2 database can alternatively be re-imported from retained Phase 1 JSON-LD/normalized files into a separately named new database, but that is a rebuild and will assign new ingestion timestamps; it is not an in-place migration.
+
+### Extract and import
+
+Run the Phase 1 extraction if needed, then initialize and import the JSON-LD/normalized pairs:
+
+```sh
+python -m src.cli --limit 20 --sample-size 20 --target-per-category 5
+python -m src.repository_cli init
+python -m src.repository_cli import --data-dir data
+```
+
+Import validates each original JSON-LD with PyLD before storage. It reads `data/<category>/<stable_id>.jsonld` and its separate `data/normalized/<category>/<stable_id>.json` file. Source JSON-LD is stored byte-for-byte as the JSON text value (the JSON object is not rewritten or enriched); normalized fields and repository identity are stored separately. SQLite files and sidecars are ignored by Git.
+
+### Inspect the repository
+
+```sh
+python -m src.repository_cli containers
+python -m src.repository_cli resources courses
+python -m src.repository_cli resources learning_materials
+python -m src.repository_cli get oersi-<stable-id>
+python -m src.repository_cli get 'https://example.org/oersi/resource/oersi-<stable-id>'
+python -m src.repository_cli stats
+python -m src.repository_cli unclassified
+python -m src.repository_cli pending
+```
+
+`stats` reports both containers, their resource counts, unclassified records, stored versions, and pending updates. Pending candidate content is deduplicated by source IRI, canonical JSON SHA-256, and candidate classification. Canonicalization sorts object keys and uses deterministic JSON separators; this detects JSON content equality, **not full RDF/JSON-LD semantic equivalence**.
+
+### Persistent identifiers and semantic vocabulary
+
+With base namespace `B` and stable Phase 1 resource ID `R`, the database forms:
+
+- Container: `B/container/{courses|learning_materials}`
+- Stable resource: `B/resource/R`
+- Version 1: `B/resource/R/version/1`
+- Reserved named graph: `B/graph/resource/R/version/1`
+
+The original OERSI `id` remains the resource's `source_iri` and is never replaced with the repository IRI. Resource IRIs persist independently from version IRIs. The first imported snapshot is Version 1 as observed by this repository, not a claim about the provider's original publication history.
+
+The original JSON-LD continues to use the OERSI/AMB context. The repository vocabulary is separate from the source vocabulary and defaults to `<OERSI_REPOSITORY_BASE_IRI>/vocab/` (or can be set independently); `repo:currentVersion` denotes the current version from the stable resource to its snapshot. Future RDF export may also use `dcterms:hasVersion`, `dcterms:isVersionOf`, `prov:wasRevisionOf`, and `prov:generatedAtTime`. No `prov:wasRevisionOf` is asserted for Version 1. Named graph IRIs are reserved only: this phase adds no RDF triplestore or SPARQL endpoint. See [docs/repository-vocabulary.md](docs/repository-vocabulary.md) for term definitions.
+
+Repeated identical imports update `last_observed_at` without duplicating resources or versions. Changed JSON or reclassification creates a pending review entry; the current Version 1 snapshot and container assignment remain unchanged. No automatic schema migration, version-history workflow, or Version 2 creation is included in Phase 2.

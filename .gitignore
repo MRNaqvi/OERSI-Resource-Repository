@@ -28,7 +28,15 @@ data/unclassified/*.jsonld
 data/normalized/**/*.json
 data/summary.json
 
+# Local Phase 2 databases and SQLite sidecar files
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+
 # Local review artifacts
 /oersi-phase1-review/
 /oersi-phase1-review.zip
+/oersi-phase2-review/
+/oersi-phase2-review.zip
 
