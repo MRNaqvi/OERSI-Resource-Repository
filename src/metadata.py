@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import quote
+
+
+def canonical_json(value: Any) -> str:
+    """Serialize JSON with sorted object keys and compact separators."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def metadata_hash(value: Any) -> str:
+    """Hash JSON content without expanding or canonicalizing its RDF meaning."""
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _localized_text(value: Any, languages: tuple[str, ...] = ("en", "de")) -> str | None:
