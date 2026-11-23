@@ -1,23 +1,28 @@
-"""SQLite persistence for Phase 2 resources and immutable initial snapshots.
-
-Metadata hashes represent canonical JSON content equality (sorted object keys),
-not RDF/JSON-LD semantic equivalence.
-"""
+"""SQLite persistence for OERSI resources and immutable metadata history."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Literal
 from urllib.parse import urlsplit
 
 from src.classification import classify_resource
 from src.jsonld_validation import JsonLdContextLoader, validate_jsonld_file
-from src.metadata import normalize_metadata, stable_resource_id
+from src.metadata import canonical_json, metadata_hash, normalize_metadata, stable_resource_id
+from src.repository_schema import (
+    SCHEMA_VERSION,
+    backup_database,
+    check_integrity,
+    create_schema,
+    has_current_version_guard,
+    migrate_phase2,
+    migrate_phase3_draft,
+)
 
 CONTAINERS: dict[str, dict[str, str]] = {
     "courses": {
@@ -30,138 +35,42 @@ CONTAINERS: dict[str, dict[str, str]] = {
     },
 }
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS repository_config (
-    config_key TEXT PRIMARY KEY,
-    config_value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS containers (
-    container_id TEXT PRIMARY KEY CHECK(container_id IN ('courses', 'learning_materials')),
-    container_iri TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS resources (
-    resource_id TEXT PRIMARY KEY,
-    source_iri TEXT NOT NULL UNIQUE,
-    resource_iri TEXT NOT NULL UNIQUE,
-    container_id TEXT CHECK(container_id IN ('courses', 'learning_materials'))
-        REFERENCES containers(container_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    title TEXT,
-    source_url TEXT,
-    current_version_iri TEXT NOT NULL,
-    first_imported_at TEXT NOT NULL,
-    last_observed_at TEXT NOT NULL,
-    FOREIGN KEY(resource_id, current_version_iri)
-        REFERENCES resource_versions(resource_id, version_iri)
-        DEFERRABLE INITIALLY DEFERRED,
-    UNIQUE(resource_id, source_iri)
-);
-
-CREATE TABLE IF NOT EXISTS resource_versions (
-    version_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    resource_id TEXT NOT NULL REFERENCES resources(resource_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    version_number INTEGER NOT NULL CHECK(version_number >= 1),
-    version_iri TEXT NOT NULL UNIQUE,
-    graph_iri TEXT NOT NULL UNIQUE,
-    original_jsonld TEXT NOT NULL,
-    normalized_metadata TEXT NOT NULL,
-    metadata_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    previous_version_iri TEXT,
-    UNIQUE(resource_id, version_iri),
-    FOREIGN KEY(resource_id, previous_version_iri)
-        REFERENCES resource_versions(resource_id, version_iri)
-        ON UPDATE RESTRICT ON DELETE RESTRICT,
-    UNIQUE(resource_id, version_number)
-);
-
-CREATE TABLE IF NOT EXISTS unclassified_resources (
-    resource_id TEXT PRIMARY KEY,
-    source_iri TEXT NOT NULL UNIQUE,
-    original_jsonld TEXT NOT NULL,
-    classification_reason TEXT NOT NULL,
-    first_observed_at TEXT NOT NULL,
-    last_observed_at TEXT NOT NULL,
-    FOREIGN KEY(resource_id, source_iri)
-        REFERENCES resources(resource_id, source_iri)
-        ON UPDATE RESTRICT ON DELETE RESTRICT
-);
-
-CREATE TABLE IF NOT EXISTS pending_updates (
-    update_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    resource_id TEXT NOT NULL REFERENCES resources(resource_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    source_iri TEXT NOT NULL,
-    candidate_jsonld TEXT NOT NULL,
-    candidate_metadata_hash TEXT NOT NULL,
-    candidate_classification TEXT NOT NULL CHECK(candidate_classification IN ('courses', 'learning_materials', 'unclassified')),
-    detected_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    UNIQUE(source_iri, candidate_metadata_hash, candidate_classification)
-);
-
-CREATE TRIGGER IF NOT EXISTS resource_versions_no_update
-BEFORE UPDATE ON resource_versions
-BEGIN
-    SELECT RAISE(ABORT, 'resource_versions are immutable');
-END;
-
-CREATE TRIGGER IF NOT EXISTS resource_versions_no_delete
-BEFORE DELETE ON resource_versions
-BEGIN
-    SELECT RAISE(ABORT, 'resource_versions are immutable');
-END;
-
-CREATE TRIGGER IF NOT EXISTS resource_versions_source_iri_insert
-BEFORE INSERT ON resource_versions
-WHEN json_valid(NEW.original_jsonld) = 0
-    OR json_extract(NEW.original_jsonld, '$.id') IS NOT (
-            SELECT source_iri FROM resources WHERE resource_id = NEW.resource_id
-    )
-BEGIN
-        SELECT RAISE(ABORT, 'resource version JSON-LD id must match its resource source_iri');
-END;
-
-CREATE TRIGGER IF NOT EXISTS unclassified_source_iri_insert
-BEFORE INSERT ON unclassified_resources
-WHEN json_valid(NEW.original_jsonld) = 0
-    OR json_extract(NEW.original_jsonld, '$.id') IS NOT NEW.source_iri
-    OR (
-        SELECT container_id FROM resources
-        WHERE resource_id = NEW.resource_id AND source_iri = NEW.source_iri
-    ) IS NOT NULL
-BEGIN
-        SELECT RAISE(ABORT, 'unclassified JSON-LD id must match source_iri');
-END;
-
-CREATE TRIGGER IF NOT EXISTS unclassified_source_iri_update
-BEFORE UPDATE OF resource_id, source_iri, original_jsonld ON unclassified_resources
-WHEN json_valid(NEW.original_jsonld) = 0
-    OR json_extract(NEW.original_jsonld, '$.id') IS NOT NEW.source_iri
-    OR (
-        SELECT container_id FROM resources
-        WHERE resource_id = NEW.resource_id AND source_iri = NEW.source_iri
-    ) IS NOT NULL
-BEGIN
-        SELECT RAISE(ABORT, 'unclassified JSON-LD id must match source_iri');
-END;
-"""
-
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
-def canonical_json(value: Any) -> str:
-    """Serialize stable JSON with sorted mapping keys and compact separators."""
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+def observation_time(value: Any) -> str:
+    """Normalize an explicit ISO-8601 instant for SQLite ordering."""
+    try:
+        if isinstance(value, str):
+            timestamp = datetime.fromisoformat(value)
+            if timestamp.utcoffset() is not None:
+                return timestamp.astimezone(timezone.utc).isoformat(timespec="microseconds")
+    except (ValueError, OverflowError):
+        pass
+    raise ValueError("Expected an ISO-8601 timestamp with an explicit time zone")
 
 
-def metadata_hash(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+def source_modified_time(value: Any) -> str | None:
+    try:
+        return observation_time(value)
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
+class ImportRecord:
+    resource_id: str
+    source_iri: str
+    category: str
+    classification_reason: str
+    original_jsonld: str
+    normalized_json: str
+    metadata_hash: str
+    title: str | None
+    source_url: str | None
+    source_modified_at: str | None
 
 
 def normalize_base_iri(base_iri: str) -> str:
@@ -196,10 +105,13 @@ class Repository:
         self.vocabulary_iri = normalize_vocabulary_iri(configured_vocabulary)
         self.context_loader = context_loader or JsonLdContextLoader()
 
-    def _connect(self) -> sqlite3.Connection:
-        if str(self.database_path) != ":memory:":
+    def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
+        if read_only:
+            source = f"{self.database_path.resolve().as_uri()}?mode=ro"
+        else:
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.database_path, timeout=30, isolation_level=None)
+            source = self.database_path
+        connection = sqlite3.connect(source, uri=read_only, timeout=30, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
@@ -220,159 +132,96 @@ class Repository:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        connection = self._connect()
+        connection = self._connect(read_only=True)
         try:
+            connection.execute("BEGIN")
             yield connection
         finally:
             connection.close()
 
-    @staticmethod
-    def _create_schema(connection: sqlite3.Connection) -> None:
-        statement = ""
-        for line in SCHEMA.splitlines():
-            statement += line + "\n"
-            if sqlite3.complete_statement(statement):
-                if statement.strip():
-                    connection.execute(statement)
-                statement = ""
-        if statement.strip():
-            raise RuntimeError("Incomplete SQLite schema statement")
-
     def initialize(self) -> None:
-        """Create schema, pin namespace configuration, and insert two containers."""
+        """Create a new Phase 3 database or validate the existing namespace."""
         with self._transaction() as connection:
-            existing_tables = {
-                row[0]
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-                )
-            }
-            if existing_tables:
-                config_exists = "repository_config" in existing_tables
-                schema_row = None
-                if config_exists:
-                    config_columns = {
-                        row[1] for row in connection.execute("PRAGMA table_info(repository_config)")
-                    }
-                    if {"config_key", "config_value"} <= config_columns:
-                        schema_row = connection.execute(
-                            "SELECT config_value FROM repository_config WHERE config_key = 'schema_version'"
-                        ).fetchone()
-                if schema_row is None:
-                    raise RuntimeError(
-                        "Existing Phase 2 database predates the integrity schema and was left unchanged. "
-                        "See README.md 'SQLite schema migration' for the explicit safe migration procedure."
-                    )
-                if schema_row[0] != "2":
-                    raise RuntimeError(
-                        f"Unsupported repository schema version {schema_row[0]!r}; database was left unchanged"
-                    )
-                for required_table in (
-                    "containers",
-                    "resources",
-                    "resource_versions",
-                    "unclassified_resources",
-                    "pending_updates",
-                ):
-                    if required_table not in existing_tables:
-                        raise RuntimeError(
-                            f"Repository schema version 2 is incomplete ({required_table} missing); "
-                            "database was left unchanged"
-                        )
-                saved_base = connection.execute(
-                    "SELECT config_value FROM repository_config WHERE config_key='base_iri'"
-                ).fetchone()
-                saved_vocab = connection.execute(
-                    "SELECT config_value FROM repository_config WHERE config_key='vocabulary_iri'"
-                ).fetchone()
-                if saved_base is None:
-                    raise RuntimeError(
-                        "Existing schema version 2 database has no base IRI configuration; "
-                        "database was left unchanged"
-                    )
-                if saved_vocab is None:
-                    raise RuntimeError(
-                        "Existing schema version 2 database has no vocabulary IRI configuration; "
-                        "database was left unchanged"
-                    )
-                if saved_base[0] != self.base_iri:
-                    raise ValueError(
-                        f"Database namespace is {saved_base[0]!r}, "
-                        f"not configured namespace {self.base_iri!r}"
-                    )
-                if saved_vocab[0] != self.vocabulary_iri:
-                    raise ValueError(
-                        f"Database vocabulary namespace is {saved_vocab[0]!r}, "
-                        f"not configured vocabulary namespace {self.vocabulary_iri!r}"
-                    )
-            self._create_schema(connection)
-            saved = connection.execute(
-                "SELECT config_value FROM repository_config WHERE config_key = 'base_iri'"
+            existing = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
             ).fetchone()
-            if saved is not None and saved[0] != self.base_iri:
-                raise ValueError(
-                    f"Database namespace is {saved[0]!r}, not configured namespace {self.base_iri!r}"
-                )
-            connection.execute(
-                "INSERT OR IGNORE INTO repository_config(config_key, config_value) VALUES ('base_iri', ?)",
-                (self.base_iri,),
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO repository_config(config_key, config_value) VALUES ('vocabulary_iri', ?)",
-                (self.vocabulary_iri,),
-            )
-            connection.execute(
-                "INSERT OR IGNORE INTO repository_config(config_key, config_value) VALUES ('schema_version', '2')"
-            )
-            saved_vocabulary = connection.execute(
-                "SELECT config_value FROM repository_config WHERE config_key = 'vocabulary_iri'"
-            ).fetchone()
-            if saved_vocabulary is None or saved_vocabulary[0] != self.vocabulary_iri:
-                raise ValueError(
-                    f"Database vocabulary namespace is {saved_vocabulary[0] if saved_vocabulary else None!r}, "
-                    f"not configured vocabulary namespace {self.vocabulary_iri!r}"
-                )
-            now = utc_now()
-            for container_id, details in CONTAINERS.items():
-                connection.execute(
-                    """INSERT OR IGNORE INTO containers
-                       (container_id, container_iri, name, description, created_at)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (
-                        container_id,
-                        f"{self.base_iri}/container/{container_id}",
-                        details["name"],
-                        details["description"],
-                        now,
-                    ),
-                )
-            rows = connection.execute("SELECT container_id, container_iri FROM containers").fetchall()
-            if len(rows) != 2 or {row["container_id"] for row in rows} != set(CONTAINERS):
-                raise RuntimeError("Repository database must contain exactly the two supported containers")
+            if existing:
+                self._ensure_initialized(connection)
+                return
 
-    def _ensure_initialized(self, connection: sqlite3.Connection) -> None:
-        row = connection.execute(
-            "SELECT config_value FROM repository_config WHERE config_key = 'base_iri'"
-        ).fetchone()
-        if row is None:
-            raise RuntimeError("Repository database is not initialized; run init first")
-        if row[0] != self.base_iri:
-            raise ValueError(
-                f"Database namespace is {row[0]!r}, not configured namespace {self.base_iri!r}"
+            create_schema(connection)
+            connection.executemany(
+                "INSERT INTO repository_config(config_key, config_value) VALUES (?, ?)",
+                (
+                    ("base_iri", self.base_iri),
+                    ("vocabulary_iri", self.vocabulary_iri),
+                    ("schema_version", SCHEMA_VERSION),
+                ),
             )
-        vocabulary = connection.execute(
-            "SELECT config_value FROM repository_config WHERE config_key = 'vocabulary_iri'"
-        ).fetchone()
-        if vocabulary is None or vocabulary[0] != self.vocabulary_iri:
-            raise ValueError(
-                f"Database vocabulary namespace is {vocabulary[0] if vocabulary else None!r}, "
-                f"not configured vocabulary namespace {self.vocabulary_iri!r}"
+            now = utc_now()
+            connection.executemany(
+                """INSERT INTO containers (container_id, container_iri, name, description, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (
+                    (key, f"{self.base_iri}/container/{key}", details["name"], details["description"], now)
+                    for key, details in CONTAINERS.items()
+                ),
             )
-        version = connection.execute(
-            "SELECT config_value FROM repository_config WHERE config_key = 'schema_version'"
-        ).fetchone()
-        if version is None or version[0] != "2":
-            raise RuntimeError("Repository database schema version is not supported")
+
+    def _ensure_initialized(self, connection: sqlite3.Connection, *, migrating: bool = False) -> str:
+        tables = {
+            row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        config = {}
+        if "repository_config" in tables:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(repository_config)")}
+            if {"config_key", "config_value"} <= columns:
+                config = dict(connection.execute("SELECT config_key, config_value FROM repository_config"))
+
+        saved_version = config.get("schema_version")
+        if saved_version is None:
+            raise RuntimeError(
+                "Database is uninitialized or predates the Phase 2 integrity schema and was left unchanged. "
+                "See the README migration procedure."
+            )
+        if saved_version not in ("2", SCHEMA_VERSION):
+            raise RuntimeError(f"Unsupported schema version {saved_version!r} for this operation")
+        if not migrating:
+            if saved_version == "2":
+                raise RuntimeError("Phase 2 database requires explicit migration. Run migrate --backup PATH.")
+            if not has_current_version_guard(connection):
+                raise RuntimeError("Phase 3 draft requires explicit migration. Run migrate --backup PATH.")
+        required = {"containers", "resources", "resource_versions", "unclassified_resources", "pending_updates"}
+        if missing := required - tables:
+            raise RuntimeError(f"Repository schema is incomplete; missing tables: {', '.join(sorted(missing))}")
+        if config.get("base_iri") != self.base_iri:
+            raise ValueError(f"Database namespace is {config.get('base_iri')!r}, configured {self.base_iri!r}")
+        if config.get("vocabulary_iri") != self.vocabulary_iri:
+            raise ValueError(
+                f"Database vocabulary namespace is {config.get('vocabulary_iri')!r}, "
+                f"configured {self.vocabulary_iri!r}"
+            )
+        containers = dict(connection.execute("SELECT container_id, container_iri FROM containers"))
+        if containers != {key: f"{self.base_iri}/container/{key}" for key in CONTAINERS}:
+            raise RuntimeError("Repository must contain exactly the two configured containers")
+        return saved_version
+
+    def migrate(self, backup_path: Path | str) -> None:
+        """Back up and migrate a Phase 2 or pre-correction Phase 3 database in place."""
+        if not self.database_path.is_file():
+            raise FileNotFoundError(f"Repository database does not exist: {self.database_path}")
+        with self._transaction() as connection:
+            version = self._ensure_initialized(connection, migrating=True)
+            if version == SCHEMA_VERSION and has_current_version_guard(connection):
+                raise RuntimeError("Repository already has the reviewed Phase 3 schema")
+            check_integrity(connection, self.base_iri)
+            backup_database(self.database_path, Path(backup_path))
+            if version == "2":
+                migrate_phase2(connection)
+            else:
+                migrate_phase3_draft(connection)
+            check_integrity(connection, self.base_iri)
+            self._ensure_initialized(connection)
 
     def _iris(self, resource_id: str, version_number: int = 1) -> tuple[str, str, str]:
         resource_iri = f"{self.base_iri}/resource/{resource_id}"
@@ -389,8 +238,9 @@ class Repository:
         root = Path(data_dir)
         counts = {"courses": 0, "learning_materials": 0, "unclassified": 0, "errors": 0}
         manifest_path = root / "summary.json"
-        manifest = self._load_extraction_manifest(manifest_path)
-        for entry in manifest:
+        observed_at, entries = self._load_extraction_manifest(manifest_path)
+        records = []
+        for entry in entries:
             resource_id = entry["stable_id"]
             category = entry["container"]
             jsonld_path = root / category / f"{resource_id}.jsonld"
@@ -441,12 +291,37 @@ class Repository:
                     f"Latest manifest category {category!r} for {resource_id!r} conflicts with "
                     f"the normalized metadata at {normalized_path}"
                 )
-            result = self.import_resource(source, normalized, expected_category=category)
-            counts[result] += 1
+            record = self._prepare_record(source, normalized, expected_category=category)
+            if "metadata_hash" in entry and entry["metadata_hash"] != record.metadata_hash:
+                raise ValueError(f"Manifest metadata hash does not match JSON-LD for {resource_id!r}")
+            records.append(record)
+            counts[record.category] += 1
+
+        fingerprint = metadata_hash(sorted((record.resource_id, record.metadata_hash) for record in records))
+        with self._transaction() as connection:
+            self._ensure_initialized(connection)
+            previous = connection.execute(
+                "SELECT config_value FROM repository_config WHERE config_key = 'latest_extraction'"
+            ).fetchone()
+            if previous:
+                latest = json.loads(previous[0])
+                if observed_at < latest["observed_at"]:
+                    raise ValueError("Extraction manifest is older than the last imported extraction")
+                if observed_at == latest["observed_at"]:
+                    if fingerprint != latest["metadata_hash"]:
+                        raise ValueError("Different extraction content has the same observation time")
+                    return counts
+            for record in records:
+                self._apply_record(connection, record, observed_at)
+            connection.execute(
+                """INSERT INTO repository_config VALUES ('latest_extraction', ?)
+                   ON CONFLICT(config_key) DO UPDATE SET config_value = excluded.config_value""",
+                (json.dumps({"observed_at": observed_at, "metadata_hash": fingerprint}),),
+            )
         return counts
 
     @staticmethod
-    def _load_extraction_manifest(manifest_path: Path) -> list[dict[str, str]]:
+    def _load_extraction_manifest(manifest_path: Path) -> tuple[str, list[dict[str, str]]]:
         """Validate the latest completed Phase 1 summary and return its entries."""
         if not manifest_path.is_file():
             raise FileNotFoundError(
@@ -527,13 +402,18 @@ class Repository:
                 raise ValueError(f"Extraction manifest stable_id does not match oersi_id for {stable_id!r}")
             if not isinstance(category, str) or category not in expected_category_counts:
                 raise ValueError(f"Extraction manifest resource {stable_id!r} has invalid category {category!r}")
+            entry = {"stable_id": stable_id, "oersi_id": oersi_id, "container": category}
+            if "metadata_hash" in raw:
+                digest = raw["metadata_hash"]
+                if not isinstance(digest, str) or len(digest) != 64:
+                    raise ValueError(f"Extraction manifest has invalid metadata hash for {stable_id!r}")
+                entry["metadata_hash"] = digest
             if stable_id in entries_by_id:
                 previous = entries_by_id[stable_id]
-                kind = "contradictory" if previous != {"stable_id": stable_id, "oersi_id": oersi_id, "container": category} else "duplicate"
+                kind = "duplicate" if previous == entry else "contradictory"
                 raise ValueError(f"Extraction manifest has a {kind} stable_id entry {stable_id!r}")
             if oersi_id in source_ids:
                 raise ValueError(f"Extraction manifest has duplicate OERSI identifier {oersi_id!r}")
-            entry = {"stable_id": stable_id, "oersi_id": oersi_id, "container": category}
             entries_by_id[stable_id] = entry
             source_ids.add(oersi_id)
             category_counts[category] += 1
@@ -557,19 +437,31 @@ class Repository:
             results_by_id[stable_id] = result
         if set(results_by_id) != set(entries_by_id):
             raise ValueError("Extraction manifest is missing JSON-LD validation results for listed resources")
-        return list(entries_by_id.values())
+        try:
+            observed_at = observation_time(manifest.get("run_at"))
+        except ValueError as exc:
+            raise ValueError("Extraction manifest run_at must be an ISO-8601 timestamp with a time zone") from exc
+        return observed_at, list(entries_by_id.values())
 
     def import_resource(
         self,
         source: dict[str, Any],
         normalized: dict[str, Any],
         expected_category: str | None = None,
+        *,
+        observed_at: str | None = None,
     ) -> str:
-        """Validate and transactionally import one JSON-LD resource.
+        """Import one observation and return its classification category."""
+        observed_at = utc_now() if observed_at is None else observation_time(observed_at)
+        record = self._prepare_record(source, normalized, expected_category)
+        with self._transaction() as connection:
+            self._ensure_initialized(connection)
+            self._apply_record(connection, record, observed_at)
+        return record.category
 
-        Return ``courses``, ``learning_materials``, or ``unclassified``. Existing
-        snapshots are never modified; changed candidates enter pending_updates.
-        """
+    def _prepare_record(
+        self, source: dict[str, Any], normalized: dict[str, Any], expected_category: str | None
+    ) -> ImportRecord:
         if not isinstance(source, dict):
             raise ValueError("Original JSON-LD root must be an object")
         source_iri = source.get("id")
@@ -584,24 +476,8 @@ class Repository:
             raise ValueError("Normalized oersi_id does not match the original JSON-LD id")
 
         expected_normalized = normalize_metadata(source)
-        for field in (
-            "stable_id",
-            "oersi_id",
-            "title",
-            "description",
-            "resource_type",
-            "keywords",
-            "subject",
-            "creator",
-            "publisher",
-            "language",
-            "license",
-            "source_url",
-            "publication_date",
-            "modification_date",
-            "source_provider",
-        ):
-            if normalized.get(field) != expected_normalized.get(field):
+        for field, expected in expected_normalized.items():
+            if normalized.get(field) != expected:
                 raise ValueError(
                     f"Normalized metadata field {field!r} does not match the original OERSI JSON-LD"
                 )
@@ -623,111 +499,175 @@ class Repository:
         if not validation["valid"]:
             raise ValueError(f"Source JSON-LD validation failed: {validation}")
 
-        container, classification_reason = source_category, source_reason
-        if expected_category is not None and expected_category != container:
+        if expected_category is not None and expected_category != source_category:
             raise ValueError(
-                f"Source classifies as {container!r}, but file is under {expected_category!r}"
+                f"Source classifies as {source_category!r}, but file is under {expected_category!r}"
             )
-        incoming_category = container
-        original_jsonld = json.dumps(source, ensure_ascii=False, indent=2)
-        normalized_json = json.dumps(normalized, ensure_ascii=False, sort_keys=True, indent=2)
-        candidate_hash = metadata_hash(source)
-        now = utc_now()
+        return ImportRecord(
+            resource_id=resource_id,
+            source_iri=source_iri,
+            category=source_category,
+            classification_reason=source_reason,
+            original_jsonld=json.dumps(source, ensure_ascii=False, indent=2),
+            normalized_json=json.dumps(normalized, ensure_ascii=False, sort_keys=True, indent=2),
+            metadata_hash=metadata_hash(source),
+            title=expected_normalized["title"],
+            source_url=expected_normalized["source_url"],
+            source_modified_at=source_modified_time(expected_normalized["modification_date"]),
+        )
 
-        with self._transaction() as connection:
-            self._ensure_initialized(connection)
-            existing = connection.execute(
-                "SELECT * FROM resources WHERE source_iri = ?", (source_iri,)
-            ).fetchone()
-            if existing is not None:
-                current_version = connection.execute(
-                    "SELECT metadata_hash FROM resource_versions WHERE version_iri = ?",
-                    (existing["current_version_iri"],),
-                ).fetchone()
-                if current_version is None:
-                    raise RuntimeError("Current resource version is missing")
-                old_category = existing["container_id"] or "unclassified"
-                if candidate_hash == current_version["metadata_hash"] and incoming_category == old_category:
-                    connection.execute(
-                        "UPDATE resources SET last_observed_at = ? WHERE resource_id = ?",
-                        (now, existing["resource_id"]),
-                    )
-                    if old_category == "unclassified":
-                        connection.execute(
-                            "UPDATE unclassified_resources SET last_observed_at = ? WHERE resource_id = ?",
-                            (now, existing["resource_id"]),
-                        )
-                    return incoming_category
-                self._insert_pending(
-                    connection, existing["resource_id"], source_iri, original_jsonld,
-                    candidate_hash, incoming_category, now,
-                )
-                connection.execute(
-                    "UPDATE resources SET last_observed_at = ? WHERE resource_id = ?",
-                    (now, existing["resource_id"]),
-                )
-                if old_category == "unclassified":
-                    connection.execute(
-                        "UPDATE unclassified_resources SET last_observed_at = ? WHERE resource_id = ?",
-                        (now, existing["resource_id"]),
-                    )
-                return incoming_category
+    def _apply_record(
+        self, connection: sqlite3.Connection, record: ImportRecord, observed_at: str
+    ) -> None:
+        existing = connection.execute(
+            """SELECT r.*, v.metadata_hash, v.version_number
+               FROM resources AS r JOIN resource_versions AS v ON v.version_iri = r.current_version_iri
+               WHERE r.source_iri = ?""",
+            (record.source_iri,),
+        ).fetchone()
+        if existing is None:
+            self._create_resource(connection, record, observed_at)
+            return
 
-            resource_iri, version_iri, graph_iri = self._iris(resource_id, 1)
-            container_id: str | None = None
-            if incoming_category != "unclassified":
-                container_iri = f"{self.base_iri}/container/{incoming_category}"
-                container_row = connection.execute(
-                    "SELECT container_id FROM containers WHERE container_id = ? AND container_iri = ?",
-                    (incoming_category, container_iri),
-                ).fetchone()
-                if container_row is None:
-                    raise RuntimeError(f"Container {incoming_category!r} does not exist in this repository")
-                container_id = incoming_category
-            connection.execute(
-                """INSERT INTO resources
-                   (resource_id, source_iri, resource_iri, container_id, title, source_url,
-                    current_version_iri, first_imported_at, last_observed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    resource_id, source_iri, resource_iri, container_id,
-                    normalized.get("title"), normalized.get("source_url"), version_iri, now, now,
-                ),
+        if observed_at <= existing["last_observed_at"]:
+            if (
+                observed_at == existing["last_observed_at"]
+                and existing["last_observed_hash"] not in (None, record.metadata_hash)
+            ):
+                raise ValueError(f"Conflicting metadata at the same observation time for {record.resource_id}")
+            return
+
+        category = existing["container_id"] or "unclassified"
+        if record.category == category and record.metadata_hash == existing["metadata_hash"]:
+            self._supersede_pending(connection, record.resource_id)
+        elif record.category == category and category != "unclassified":
+            self._advance_version(
+                connection, record, observed_at, existing["version_number"], existing["current_version_iri"],
+                created_at=utc_now(),
             )
+            self._supersede_pending(connection, record.resource_id)
+        else:
+            self._queue_pending(connection, record, observed_at, existing["current_version_iri"])
+
+        connection.execute(
+            """UPDATE resources SET last_observed_at = ?, last_observed_hash = ? WHERE resource_id = ?""",
+            (observed_at, record.metadata_hash, record.resource_id),
+        )
+        if category == "unclassified":
             connection.execute(
-                """INSERT INTO resource_versions
-                   (resource_id, version_number, version_iri, graph_iri, original_jsonld,
-                    normalized_metadata, metadata_hash, created_at, previous_version_iri)
-                   VALUES (?, 1, ?, ?, ?, ?, ?, ?, NULL)""",
-                (resource_id, version_iri, graph_iri, original_jsonld, normalized_json, candidate_hash, now),
+                "UPDATE unclassified_resources SET last_observed_at = ? WHERE resource_id = ?",
+                (observed_at, record.resource_id),
             )
-            if incoming_category == "unclassified":
-                connection.execute(
-                    """INSERT INTO unclassified_resources
-                       (resource_id, source_iri, original_jsonld, classification_reason,
-                        first_observed_at, last_observed_at)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (resource_id, source_iri, original_jsonld, classification_reason, now, now),
-                )
-            return incoming_category
+
+    def _create_resource(
+        self, connection: sqlite3.Connection, record: ImportRecord, observed_at: str
+    ) -> None:
+        resource_iri, version_iri, _ = self._iris(record.resource_id)
+        created_at = utc_now()
+        connection.execute(
+            """INSERT INTO resources
+               (resource_id, source_iri, resource_iri, container_id, title, source_url,
+                current_version_iri, first_imported_at, last_observed_at, last_observed_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record.resource_id, record.source_iri, resource_iri, self._container_id(record.category),
+                record.title, record.source_url, version_iri, created_at, observed_at, record.metadata_hash,
+            ),
+        )
+        self._insert_version(connection, record, observed_at, created_at, 1, None)
+        if record.category == "unclassified":
+            self._record_unclassified(connection, record, observed_at)
+
+    def _insert_version(
+        self, connection: sqlite3.Connection, record: ImportRecord, observed_at: str, created_at: str,
+        number: int, previous_version_iri: str | None,
+    ) -> str:
+        _, version_iri, graph_iri = self._iris(record.resource_id, number)
+        connection.execute(
+            """INSERT INTO resource_versions
+               (resource_id, version_number, version_iri, graph_iri, original_jsonld,
+                normalized_metadata, metadata_hash, created_at, previous_version_iri,
+                observed_at, source_modified_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                record.resource_id, number, version_iri, graph_iri, record.original_jsonld, record.normalized_json,
+                record.metadata_hash, created_at, previous_version_iri, observed_at, record.source_modified_at,
+            ),
+        )
+        return version_iri
+
+    def _advance_version(
+        self, connection: sqlite3.Connection, record: ImportRecord, observed_at: str,
+        current_number: int, current_iri: str, *, created_at: str,
+    ) -> str:
+        version_iri = self._insert_version(
+            connection, record, observed_at, created_at, current_number + 1, current_iri
+        )
+        connection.execute(
+            """UPDATE resources SET current_version_iri = ?, container_id = ?, title = ?, source_url = ?
+               WHERE resource_id = ?""",
+            (version_iri, self._container_id(record.category), record.title, record.source_url, record.resource_id),
+        )
+        return version_iri
 
     @staticmethod
-    def _insert_pending(
-        connection: sqlite3.Connection,
-        resource_id: str | None,
-        source_iri: str,
-        original_jsonld: str,
-        candidate_hash: str,
-        classification: str,
-        detected_at: str,
+    def _container_id(category: str) -> str | None:
+        return None if category == "unclassified" else category
+
+    @staticmethod
+    def _record_unclassified(
+        connection: sqlite3.Connection, record: ImportRecord, observed_at: str
     ) -> None:
         connection.execute(
+            """INSERT INTO unclassified_resources
+               (resource_id, source_iri, original_jsonld, classification_reason, first_observed_at, last_observed_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(resource_id) DO UPDATE SET
+                   original_jsonld = excluded.original_jsonld,
+                   classification_reason = excluded.classification_reason,
+                   last_observed_at = excluded.last_observed_at""",
+            (record.resource_id, record.source_iri, record.original_jsonld, record.classification_reason,
+             observed_at, observed_at),
+        )
+
+    @staticmethod
+    def _supersede_pending(
+        connection: sqlite3.Connection, resource_id: str, keep_update_id: int | None = None
+    ) -> None:
+        connection.execute(
+            """UPDATE pending_updates SET status = 'superseded', decided_at = ?
+               WHERE resource_id = ? AND status = 'pending' AND update_id IS NOT ?""",
+            (utc_now(), resource_id, keep_update_id),
+        )
+
+    def _queue_pending(
+        self, connection: sqlite3.Connection, record: ImportRecord, observed_at: str, current_iri: str
+    ) -> None:
+        matching = connection.execute(
+            """SELECT update_id, status FROM pending_updates
+               WHERE resource_id = ? AND base_version_iri = ?
+                   AND candidate_metadata_hash = ? AND candidate_classification = ?
+                   AND status IN ('pending', 'rejected')
+               ORDER BY update_id DESC LIMIT 1""",
+            (record.resource_id, current_iri, record.metadata_hash, record.category),
+        ).fetchone()
+        self._supersede_pending(connection, record.resource_id, matching["update_id"] if matching else None)
+        if matching:
+            if matching["status"] == "pending":
+                connection.execute(
+                    """UPDATE pending_updates SET observed_at = ?,
+                           candidate_normalized_metadata = COALESCE(candidate_normalized_metadata, ?)
+                       WHERE update_id = ?""",
+                    (observed_at, record.normalized_json, matching["update_id"]),
+                )
+            return
+        connection.execute(
             """INSERT INTO pending_updates
-               (resource_id, source_iri, candidate_jsonld, candidate_metadata_hash,
-                candidate_classification, detected_at, status)
-               VALUES (?, ?, ?, ?, ?, ?, 'pending')
-               ON CONFLICT(source_iri, candidate_metadata_hash, candidate_classification) DO NOTHING""",
-            (resource_id, source_iri, original_jsonld, candidate_hash, classification, detected_at),
+               (resource_id, source_iri, candidate_jsonld, candidate_normalized_metadata,
+                candidate_metadata_hash, candidate_classification, detected_at, observed_at, base_version_iri)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (record.resource_id, record.source_iri, record.original_jsonld, record.normalized_json,
+             record.metadata_hash, record.category, utc_now(), observed_at, current_iri),
         )
 
     def containers(self) -> list[dict[str, Any]]:
@@ -747,23 +687,127 @@ class Repository:
                 )
             ]
 
+    @staticmethod
+    def _resource_row(connection: sqlite3.Connection, identifier: str) -> sqlite3.Row | None:
+        return connection.execute(
+            "SELECT * FROM resources WHERE resource_id = ? OR resource_iri = ?",
+            (identifier, identifier),
+        ).fetchone()
+
+    @staticmethod
+    def _version_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        version = dict(row)
+        version["original_jsonld"] = json.loads(row["original_jsonld"])
+        version["normalized_metadata"] = json.loads(row["normalized_metadata"])
+        if row["observed_at"] is None:
+            # Phase 2 recorded only the repository's import time for Version 1.
+            version["observed_at"] = row["created_at"]
+            version["source_modified_at"] = source_modified_time(
+                version["normalized_metadata"].get("modification_date")
+            )
+        return version
+
+    @staticmethod
+    def _version_row(connection: sqlite3.Connection, version_iri: str) -> sqlite3.Row | None:
+        return connection.execute(
+            "SELECT * FROM resource_versions WHERE version_iri = ?", (version_iri,)
+        ).fetchone()
+
+    @staticmethod
+    def _numbered_version(
+        connection: sqlite3.Connection, identifier: str, number: int
+    ) -> sqlite3.Row | None:
+        if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+            raise ValueError("Version number must be a positive integer")
+        if number > 2**63 - 1:
+            return None
+        return connection.execute(
+            """SELECT v.* FROM resource_versions AS v JOIN resources AS r USING (resource_id)
+               WHERE (r.resource_id = ? OR r.resource_iri = ?) AND v.version_number = ?""",
+            (identifier, identifier, number),
+        ).fetchone()
+
     def get_resource(self, identifier: str) -> dict[str, Any] | None:
         with self._connection() as connection:
             self._ensure_initialized(connection)
-            row = connection.execute(
-                "SELECT * FROM resources WHERE resource_id = ? OR resource_iri = ?", (identifier, identifier)
-            ).fetchone()
+            row = self._resource_row(connection, identifier)
             if row is None:
                 return None
-            version = connection.execute(
-                "SELECT * FROM resource_versions WHERE version_iri = ?", (row["current_version_iri"],)
-            ).fetchone()
             result = dict(row)
-            result["current_version"] = dict(version) if version else None
-            if version:
-                result["current_version"]["original_jsonld"] = json.loads(version["original_jsonld"])
-                result["current_version"]["normalized_metadata"] = json.loads(version["normalized_metadata"])
+            result["current_version"] = self._version_dict(self._version_row(connection, row["current_version_iri"]))
             return result
+
+    def get_current_version(self, identifier: str) -> dict[str, Any] | None:
+        resource = self.get_resource(identifier)
+        return None if resource is None else resource["current_version"]
+
+    def list_versions(self, identifier: str) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            rows = connection.execute(
+                """SELECT v.* FROM resource_versions AS v JOIN resources AS r USING (resource_id)
+                   WHERE r.resource_id = ? OR r.resource_iri = ? ORDER BY v.version_number""",
+                (identifier, identifier),
+            )
+            return [self._version_dict(row) for row in rows]
+
+    def get_version(self, identifier: str, version_number: int | None = None) -> dict[str, Any] | None:
+        """Find by version IRI, or by resource ID/IRI and a version number."""
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            if version_number is None:
+                row = self._version_row(connection, identifier)
+            else:
+                row = self._numbered_version(connection, identifier, version_number)
+            return self._version_dict(row)
+
+    def get_previous_version(self, version_iri: str) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            row = connection.execute(
+                """SELECT prev.* FROM resource_versions AS prev
+                   JOIN resource_versions AS v ON prev.version_iri = v.previous_version_iri
+                   WHERE v.version_iri = ?""",
+                (version_iri,),
+            ).fetchone()
+            return self._version_dict(row)
+
+    def get_version_at_time(
+        self, identifier: str, timestamp: str, *, basis: Literal["observation", "repository"] = "observation",
+    ) -> dict[str, Any] | None:
+        """Find the version as of an observation or recorded repository creation time."""
+        if basis not in ("observation", "repository"):
+            raise ValueError(f"Unknown history time basis {basis!r}")
+        timestamp = observation_time(timestamp)
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            row = connection.execute(
+                """SELECT v.* FROM resource_versions AS v JOIN resources AS r USING (resource_id)
+                   WHERE (r.resource_id = ? OR r.resource_iri = ?)
+                       AND CASE WHEN ? = 'repository' THEN v.created_at
+                                ELSE COALESCE(v.observed_at, v.created_at) END <= ?
+                   ORDER BY v.version_number DESC LIMIT 1""",
+                (identifier, identifier, basis, timestamp),
+            ).fetchone()
+            return self._version_dict(row)
+
+    def compare_versions(
+        self, identifier: str, from_version: int, to_version: int
+    ) -> dict[str, Any]:
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            before = self._version_dict(self._numbered_version(connection, identifier, from_version))
+            after = self._version_dict(self._numbered_version(connection, identifier, to_version))
+        if before is None or after is None:
+            raise LookupError(f"Both versions must exist for resource {identifier!r}")
+        return {
+            "from_version_iri": before["version_iri"],
+            "to_version_iri": after["version_iri"],
+            "original_jsonld": _property_changes(before["original_jsonld"], after["original_jsonld"]),
+            "normalized_metadata": _property_changes(before["normalized_metadata"], after["normalized_metadata"]),
+        }
 
     def stats(self) -> dict[str, int]:
         with self._connection() as connection:
@@ -794,10 +838,154 @@ class Repository:
                 )
             ]
 
-    def list_pending_updates(self) -> list[dict[str, Any]]:
+    def list_pending_updates(self, *, include_decided: bool = False) -> list[dict[str, Any]]:
         with self._connection() as connection:
             self._ensure_initialized(connection)
-            return [dict(row) for row in connection.execute("SELECT * FROM pending_updates ORDER BY update_id")]
+            return [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM pending_updates WHERE ? OR status = 'pending' ORDER BY update_id",
+                    (include_decided,),
+                )
+            ]
+
+    @staticmethod
+    def _pending_row(connection: sqlite3.Connection, update_id: int) -> sqlite3.Row:
+        if not 1 <= update_id <= 2**63 - 1:
+            raise LookupError(f"Pending update {update_id} does not exist")
+        row = connection.execute(
+            "SELECT * FROM pending_updates WHERE update_id = ?", (update_id,)
+        ).fetchone()
+        if row is None:
+            raise LookupError(f"Pending update {update_id} does not exist")
+        return row
+
+    @staticmethod
+    def _pending_dict(row: sqlite3.Row) -> dict[str, Any]:
+        result = dict(row)
+        source = json.loads(row["candidate_jsonld"])
+        if row["candidate_normalized_metadata"] is None:
+            # Phase 2 recorded the original JSON-LD but not the normalized candidate.
+            normalized = normalize_metadata(source)
+            category, reason = classify_resource(source)
+            normalized["classification"] = {"container": category, "reason": reason}
+        else:
+            normalized = json.loads(row["candidate_normalized_metadata"])
+        result["candidate_jsonld"] = source
+        result["candidate_normalized_metadata"] = normalized
+        return result
+
+    @staticmethod
+    def _require_pending(row: sqlite3.Row) -> None:
+        if row["status"] != "pending":
+            raise ValueError(f"Update {row['update_id']} already has status {row['status']!r}")
+
+    def _applicable_candidate(
+        self, connection: sqlite3.Connection, candidate: sqlite3.Row
+    ) -> tuple[sqlite3.Row, sqlite3.Row]:
+        self._require_pending(candidate)
+        resource = self._resource_row(connection, candidate["resource_id"])
+        if (
+            resource["current_version_iri"] != candidate["base_version_iri"]
+            or resource["last_observed_at"] != candidate["observed_at"]
+            or resource["last_observed_hash"] != candidate["candidate_metadata_hash"]
+        ):
+            raise ValueError(f"Update {candidate['update_id']} is stale; it needs a fresh observation")
+        current = self._version_row(connection, resource["current_version_iri"])
+        if (
+            current["metadata_hash"] == candidate["candidate_metadata_hash"]
+            and resource["container_id"] == self._container_id(candidate["candidate_classification"])
+        ):
+            raise ValueError(f"Update {candidate['update_id']} already matches the current version")
+        return resource, current
+
+    def review_update(self, update_id: int) -> dict[str, Any]:
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            candidate = self._pending_dict(self._pending_row(connection, update_id))
+            resource = self._resource_row(connection, candidate["resource_id"])
+            current = self._version_dict(self._version_row(connection, resource["current_version_iri"]))
+            return {
+                "candidate": candidate,
+                "current_version": current,
+                "changes": {
+                    "original_jsonld": _property_changes(current["original_jsonld"], candidate["candidate_jsonld"]),
+                    "normalized_metadata": _property_changes(
+                        current["normalized_metadata"], candidate["candidate_normalized_metadata"]
+                    ),
+                },
+            }
+
+    def accept_update(self, update_id: int) -> dict[str, Any]:
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            row = self._pending_row(connection, update_id)
+            self._applicable_candidate(connection, row)
+            candidate = self._pending_dict(row)
+
+        # The JSON-LD context loader can use the network. Validate before taking the write lock.
+        record = self._prepare_record(
+            candidate["candidate_jsonld"], candidate["candidate_normalized_metadata"],
+            candidate["candidate_classification"],
+        )
+        if (
+            record.metadata_hash != candidate["candidate_metadata_hash"]
+            or record.resource_id != candidate["resource_id"]
+            or record.source_iri != candidate["source_iri"]
+        ):
+            raise ValueError(f"Update {update_id} no longer matches its stored source identity or hash")
+
+        with self._transaction() as connection:
+            self._ensure_initialized(connection)
+            fresh = self._pending_row(connection, update_id)
+            resource, current = self._applicable_candidate(connection, fresh)
+            payload_fields = (
+                "resource_id", "source_iri", "candidate_jsonld", "candidate_normalized_metadata",
+                "candidate_metadata_hash", "candidate_classification",
+            )
+            if any(fresh[key] != row[key] for key in payload_fields):
+                raise ValueError(f"Update {update_id} changed during validation; review it again")
+            observed_at = fresh["observed_at"]
+            decided_at = utc_now()
+            version_iri = self._advance_version(
+                connection, record, observed_at, current["version_number"], resource["current_version_iri"],
+                created_at=decided_at,
+            )
+            if record.category == "unclassified":
+                self._record_unclassified(connection, record, observed_at)
+            elif resource["container_id"] is None:
+                connection.execute("DELETE FROM unclassified_resources WHERE resource_id = ?", (record.resource_id,))
+            connection.execute(
+                """UPDATE pending_updates
+                   SET status = 'accepted', decided_at = ?, accepted_version_iri = ?,
+                       candidate_normalized_metadata = COALESCE(candidate_normalized_metadata, ?)
+                   WHERE update_id = ?""",
+                (decided_at, version_iri, record.normalized_json, update_id),
+            )
+            self._supersede_pending(connection, record.resource_id)
+            return self._pending_dict(self._pending_row(connection, update_id))
+
+    def reject_update(self, update_id: int) -> dict[str, Any]:
+        with self._transaction() as connection:
+            self._ensure_initialized(connection)
+            self._require_pending(self._pending_row(connection, update_id))
+            connection.execute(
+                "UPDATE pending_updates SET status = 'rejected', decided_at = ? WHERE update_id = ?",
+                (utc_now(), update_id),
+            )
+            return self._pending_dict(self._pending_row(connection, update_id))
+
+
+def _property_changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "added": {key: after[key] for key in sorted(after.keys() - before.keys())},
+        "removed": {key: before[key] for key in sorted(before.keys() - after.keys())},
+        "changed": {
+            key: {"from": before[key], "to": after[key]}
+            for key in sorted(before.keys() & after.keys())
+            if canonical_json(before[key]) != canonical_json(after[key])
+        },
+    }
 
 
 def validate_jsonld_file_from_object(

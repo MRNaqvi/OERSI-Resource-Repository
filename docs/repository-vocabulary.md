@@ -1,20 +1,38 @@
-# Reserved OERSI Repository Vocabulary
+# OERSI repository vocabulary
 
-This document describes repository-level semantics separately from the original OERSI JSON-LD/AMB vocabulary. Phase 2 stores source JSON-LD unchanged and persists normalized application metadata and identities in SQLite. It does not emit RDF triples or provide a SPARQL endpoint.
+The repository namespace represents stable resources, immutable metadata snapshots, and their provenance. The original OERSI JSON-LD continues to use its source vocabulary and AMB context. Repository IRIs and relationships are stored in SQLite and are ready for a future RDF export.
 
-## Namespace
+## Resource and version identifiers
 
-- Prefix: `repo:`
-- Default namespace IRI: `<OERSI_REPOSITORY_BASE_IRI>/vocab/` (for example `https://example.org/oersi/vocab/` when using the example base)
-- `repo:currentVersion`: relates a stable repository resource to its current immutable metadata snapshot. The IRI target is the current `version_iri`.
+With configured base `B`, stable resource ID `R`, and sequential version number `N`:
 
-The example namespace is a development/example namespace. Deployments should configure a base namespace they control using `OERSI_REPOSITORY_BASE_IRI`. The vocabulary namespace defaults to the base plus `/vocab/`, or may be configured independently using `OERSI_REPOSITORY_VOCABULARY_IRI` / `--vocabulary-iri`. It is stored in the repository configuration and must match when reopening the database; a mismatch is rejected rather than silently changing the vocabulary namespace.
+| Entity | IRI |
+| --- | --- |
+| Stable resource | `B/resource/R` |
+| Metadata snapshot | `B/resource/R/version/N` |
+| Reserved named graph | `B/graph/resource/R/version/N` |
 
-## Existing vocabulary terms reserved for future RDF export
+The resource IRI remains stable across metadata changes, classification decisions, and content reversions. Each version IRI and its reserved graph IRI identify one immutable snapshot. Version 1 is the first state recorded by this repository. The source's own `id` remains in the snapshot and is stored separately as `source_iri`.
 
-- `dcterms:hasVersion` — stable resource to a version snapshot.
-- `dcterms:isVersionOf` — version snapshot to stable resource.
-- `prov:wasRevisionOf` — a version to its previous repository version; omitted for Version 1.
-- `prov:generatedAtTime` — the time the repository generated/stored a snapshot.
+The `repo:` vocabulary namespace defaults to `B/vocab/`. Set `OERSI_REPOSITORY_VOCABULARY_IRI` or use `--vocabulary-iri` to configure it independently. Reopen the database with the same saved base and vocabulary namespaces.
 
-Phase 2 creates a named-graph IRI for each Version 1 record and stores it in SQLite for future use, but it does not create or populate a named RDF graph. Stable resource identity and version-specific metadata remain distinct. The `resource_iri` stays constant while each version IRI denotes one immutable snapshot.
+## Semantic relationships
+
+| Predicate | Subject | Object |
+| --- | --- | --- |
+| `dcterms:hasVersion` | Stable resource | Any of its immutable versions |
+| `dcterms:isVersionOf` | Immutable version | Its stable resource |
+| `prov:wasRevisionOf` | Version 2 or later | Its immediately preceding version |
+| `prov:generatedAtTime` | Immutable version | UTC repository version creation time, `created_at` |
+| `repo:currentVersion` | Stable resource | Its single current immutable version |
+
+Version 1 has a null predecessor. An accepted review and an automatic metadata revision both append to the same version chain. An observation that reverts to earlier metadata gets a new IRI and links to the preceding current version.
+
+## Time and content provenance
+
+- `observed_at` identifies when the source metadata was observed, based on the extraction manifest. The default `at-time` query uses this timestamp. It can show a review accepted later at the time the candidate was observed.
+- `created_at` identifies when the repository wrote the version. `at-time --basis repository` uses this timestamp to find the highest version accepted or automatically created by the requested instant. New review acceptances record the same timestamp on the decision and its version. This is a recorded transaction time. Separate commit visibility timestamps are unavailable.
+- `source_modified_at` carries a source-reported modification instant normalized to UTC, when the source provides a time zone. The original source value stays in the JSON-LD.
+- Migrated Phase 2 Version 1 snapshots use their recorded repository creation time as the observation boundary because Phase 2 did not record extraction instants on versions.
+
+Snapshots store the source JSON-LD structure and normalized application metadata separately. The SHA-256 content hash tracks canonical JSON equality and preserves differences such as array order. RDF graph equivalence would require separate canonicalization. Named graph IRIs are identifiers reserved for later storage and query support.

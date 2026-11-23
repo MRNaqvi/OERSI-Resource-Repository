@@ -9,7 +9,7 @@ import pytest
 
 from src.classification import classify_resource
 from src.metadata import normalize_metadata
-from src.repository import CONTAINERS, Repository, metadata_hash
+from src.repository import CONTAINERS, Repository, metadata_hash, utc_now
 from tests.jsonld_fixtures import LocalAmbContextLoader, resource_fixture
 
 BASE_IRI = "https://example.org/oersi/"
@@ -29,7 +29,7 @@ def make_repository(path: Path, base_iri: str = BASE_IRI) -> Repository:
     return repository
 
 
-def write_manifest(data_dir: Path, entries: list[dict[str, str]]) -> None:
+def write_manifest(data_dir: Path, entries: list[dict[str, str]], run_at: str | None = None) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
     category_counts = {"courses": 0, "learning_materials": 0, "unclassified": 0}
     for entry in entries:
@@ -42,6 +42,7 @@ def write_manifest(data_dir: Path, entries: list[dict[str, str]]) -> None:
         json.dumps(
             {
                 "fetched_records": len(entries),
+                "run_at": run_at or utc_now(),
                 "unique_records": len(entries),
                 "successfully_classified_courses": category_counts["courses"],
                 "successfully_classified_learning_materials": category_counts["learning_materials"],
@@ -143,7 +144,7 @@ def test_metadata_hash_uses_sorted_object_keys_and_json_content_equality():
     assert metadata_hash({"a": 1}) != metadata_hash({"a": "1"})
 
 
-def test_changed_metadata_creates_one_pending_candidate_not_new_version(tmp_path: Path):
+def test_classified_metadata_change_creates_only_one_new_version(tmp_path: Path):
     repository = make_repository(tmp_path / "repo.sqlite")
     source, normalized = make_record()
     repository.import_resource(source, normalized)
@@ -156,13 +157,13 @@ def test_changed_metadata_creates_one_pending_candidate_not_new_version(tmp_path
     repository.import_resource(changed, changed_normalized)
     repository.import_resource(changed, changed_normalized)
 
-    updates = repository.list_pending_updates()
-    assert len(updates) == 1
-    assert updates[0]["candidate_jsonld"] == json.dumps(changed, ensure_ascii=False, indent=2)
-    assert updates[0]["candidate_metadata_hash"] == metadata_hash(changed)
-    assert updates[0]["candidate_classification"] == "courses"
-    assert repository.stats()["resource_versions"] == 1
-    assert repository.get_resource(normalized["stable_id"])["current_version"]["original_jsonld"] == original_snapshot
+    first, second = repository.list_versions(normalized["stable_id"])
+    assert first["original_jsonld"] == original_snapshot
+    assert second["original_jsonld"] == changed
+    assert second["metadata_hash"] == metadata_hash(changed)
+    assert second["normalized_metadata"]["classification"]["container"] == "courses"
+    assert repository.get_resource(normalized["stable_id"])["current_version"] == second
+    assert repository.list_pending_updates() == []
 
 
 def test_classification_change_is_pending_and_never_moves_resource(tmp_path: Path):

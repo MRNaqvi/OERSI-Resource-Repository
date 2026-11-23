@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.classification import COURSE_TYPE_ID, LEARNING_MATERIAL_TYPE_IDS, classify_resource
-from src.metadata import filename_for, normalize_metadata
+from src.metadata import filename_for, metadata_hash, normalize_metadata
 from src.jsonld_validation import JsonLdContextLoader, validate_jsonld_file
 from src.oersi_client import OERSIClient
 
@@ -225,6 +225,7 @@ class Extractor:
                     "stable_id": record["normalized"]["stable_id"],
                     "oersi_id": record["normalized"]["oersi_id"],
                     "container": record["normalized"]["classification"]["container"],
+                    "metadata_hash": metadata_hash(record["source"]),
                 }
                 for record in self.records.values()
             ],

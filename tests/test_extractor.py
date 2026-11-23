@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from src.extractor import Extractor
+from src.metadata import metadata_hash
 from tests.jsonld_fixtures import FailingAmbContextLoader, LocalAmbContextLoader, resource_fixture
 
 
@@ -61,6 +62,8 @@ def test_extraction_saves_source_jsonld_normalized_data_and_summary(tmp_path: Pa
         assert normalized["oersi_id"] == source_id
         assert normalized["classification"]["container"] == category
         assert "@context" not in normalized
+        entry = next(entry for entry in report["resources"] if entry["oersi_id"] == source_id)
+        assert entry["metadata_hash"] == metadata_hash(source_document)
 
     assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["extraction_error_count"] == 0
 

@@ -1,4 +1,4 @@
-# OERSI Resource Repository — Phase 1 and Phase 2
+# OERSI Resource Repository
 
 A small, metadata-only Python client for the official OERSI Elasticsearch search API. It stores original API search responses, writes each original OERSI resource as a top-level JSON-LD document, stores derived application metadata separately, and classifies records without downloading PDFs, videos, or course content.
 
@@ -28,7 +28,7 @@ Each category output is a JSON-LD 1.1 document serialized directly from the OERS
 - `data/unclassified/<stable_id>.jsonld`
 - `data/normalized/<category>/<stable_id>.json` — repository-specific `stable_id`, `oersi_id`, `classification`, and normalized fields only. It does not contain `@context` or an embedded copy of source metadata.
 - `data/raw/` — full original OERSI API response bodies.
-- `data/summary.json` — extraction counts, errors, per-document JSON-LD validation states, and expanded identifiers/types.
+- `data/summary.json` — UTC run timestamp, extraction counts, errors, per-document JSON-LD validation results, and source metadata hashes.
 
 PyLD performs JSON-LD 1.1 expansion on each serialized `.jsonld` output. Validation checks JSON parsing, the presence and reference to the official AMB context, successful expansion, the expanded identifier against the original OERSI `id`, and the expanded type values against the original type terms processed using that context. Network/HTTP context retrieval failures are reported separately from invalid JSON-LD. The CLI exits nonzero if extraction, JSON-LD validation, or context resolution fails. Validation is non-mutating; failed source documents are retained unchanged for inspection and their errors are recorded in the summary. The context loader doesn't treat the HTTP `Link` header as a context URL; fetched context documents use their own `@context`. Automated tests use controlled local context loaders and mocked HTTP responses, so they do not depend on network availability.
 
@@ -54,7 +54,7 @@ python -m src.cli --limit 40 --sample-size 20 --target-per-category 10 --timeout
 
 Outputs follow the layout in [JSON-LD and output layout](#json-ld-and-output-layout). Stable filenames use an `oersi-<sha256-prefix>` identifier derived only from the OERSI identifier.
 
-A rerun overwrites records with the same stable ID; this phase does not implement immutable versions, snapshots, identity reconciliation, or update history. Existing output files not returned by a later run are not automatically deleted.
+An extraction rerun replaces the output files for IDs it observes. Older files absent from a new extraction stay on disk. Import each successful extraction into SQLite to keep a version history.
 
 ## Tests
 
@@ -64,70 +64,112 @@ Run automated tests from the repository root:
 python -m pytest
 ```
 
-## Phase 1 extraction scope
+## SQLite resource repository
 
-Phase 1 extraction remains metadata-only. Resource binary/content URLs may be recorded as metadata, but PDFs, videos, and complete course content are never downloaded. The Phase 1 extraction CLI remains available as `python -m src.cli`; Phase 2 persistence is provided separately by `src.repository` and `python -m src.repository_cli`.
-
-## Phase 2 — Persistent containers and initial versions
-
-Phase 2 adds a Python built-in `sqlite3` repository. The persistent database has exactly two containers (`courses` and `learning_materials`). Unclassified records still receive a stable resource IRI and immutable Version 1 snapshot, but their `container_id` is `NULL` and they are additionally listed in the separate unclassified review table; they are not silently assigned to either container. Each newly imported resource receives one immutable Version 1 snapshot; subsequent changed metadata or classification is recorded as a pending review candidate. Automatic version increments are not implemented.
+The Phase 1 command `python -m src.cli` extracts OERSI metadata. The repository command `python -m src.repository_cli` imports that metadata into SQLite. It manages two persistent containers, `courses` and `learning_materials`. Unclassified records have stable identities and version history with a null container assignment. The `unclassified` command lists them.
 
 ### Configure and initialize
 
-Set `OERSI_REPOSITORY_BASE_IRI` in `.env` to the namespace your deployment controls. The default `https://example.org/oersi/` is a development example only, not a claim that the domain is owned or dereferenceable. The database stores this namespace and refuses to open it using a different base IRI.
-
-The repository vocabulary defaults to `<base-IRI>/vocab/`. To configure it independently, set `OERSI_REPOSITORY_VOCABULARY_IRI` or pass `--vocabulary-iri URL`; it must be a valid absolute HTTP(S) namespace and is persisted alongside the base IRI. Reopening with a different value is rejected rather than silently changing repository semantics.
+Set `OERSI_REPOSITORY_BASE_IRI` to a namespace you control. The default `https://example.org/oersi/` is for development. The repository vocabulary defaults to `<base-IRI>/vocab/`. Set `OERSI_REPOSITORY_VOCABULARY_IRI` or pass `--vocabulary-iri URL` to configure it independently. Both namespaces are stored in the database and must match on subsequent opens.
 
 ```sh
 python -m src.repository_cli init
 ```
 
-The default database path is `data/repository.sqlite3`. Override it with `--database PATH`, the namespace with `--base-iri URL`, and the vocabulary with `--vocabulary-iri URL`; global options go before the subcommand. SQLite foreign-key enforcement is enabled for every connection. Composite foreign keys ensure a resource's current version and a version's previous version belong to the same resource. Unclassified rows reference the matching resource and source IRI. Version rows are protected by database triggers against update and delete.
+The default database is `data/repository.sqlite3`. Set `OERSI_REPOSITORY_DATABASE` or pass `--database PATH` to use another file. Put `--database`, `--base-iri`, and `--vocabulary-iri` before the subcommand.
 
 ### SQLite schema migration
 
-The integrity review adds composite foreign keys and persisted vocabulary/schema-version configuration. Existing Phase 2 databases do **not** have these constraints; initialization detects their missing `schema_version` and refuses to modify them. No database is automatically reset or migrated. To preserve an existing database, make a verified backup and perform an explicit, reviewed migration that creates new tables with the current schema, copies and validates resources/versions, checks `PRAGMA foreign_key_check`, preserves the stored base and vocabulary IRIs, then atomically swaps the tables. Keep the original file until the migrated copy passes validation. A simple Phase 2 database can alternatively be re-imported from retained Phase 1 JSON-LD/normalized files into a separately named new database, but that is a rebuild and will assign new ingestion timestamps; it is not an in-place migration.
+Schema version 3 supports an explicit in-place migration from the Phase 2 integrity schema (version 2). Use the existing namespace settings and specify a fresh backup filename in an existing directory.
+
+```sh
+python -m src.repository_cli --database data/repository.sqlite3 migrate --backup data/repository.phase2-backup.sqlite3
+```
+
+Migration takes a SQLite backup before changing the schema, including any committed WAL data. It preserves the resource and Version 1 rows, IRIs, timestamps, exact stored snapshot JSON, and pending candidates. It extends the version and resource tables, replaces the pending table with a decision-aware schema, and checks foreign keys and version relationships. Migration rolls back on failure, and a completed backup remains available. To recover, point the Phase 2 code at a copy of that backup. Databases predating the numbered integrity schema require a separately reviewed migration.
+
+Pre-correction Phase 3 databases also use the explicit `migrate --backup` command. They retain schema version 3. The upgrade adds the pointer trigger and rebuilds the pending table with the decision checks, preserving valid audit rows. A prior invalid pointer or inconsistent audit row causes migration to fail with the original database preserved. The upgrade never guesses a missing decision or accepted version.
+
+Phase 2 had no per-version extraction timestamp. Migrated Version 1 history uses its recorded repository creation timestamp as the historical observation boundary. Legacy candidates retain their original detection time as the observation boundary. Acceptance requires evidence that the candidate was the latest observation or a fresh import of that candidate. Source-modification instants are recovered from retained metadata when available.
 
 ### Extract and import
 
-Run the Phase 1 extraction if needed, then initialize and import the JSON-LD/normalized pairs:
-
 ```sh
 python -m src.cli --limit 20 --sample-size 20 --target-per-category 5
-python -m src.repository_cli init
 python -m src.repository_cli import --data-dir data
 ```
 
-Import treats `data/summary.json` as the authoritative manifest from the latest completed extraction. It imports only entries in the manifest, verifies the successful extraction/JSON-LD validation counts and unique resource list, and requires a matching `data/<category>/<stable_id>.jsonld` plus `data/normalized/<category>/<stable_id>.json` for each entry. It checks the source OERSI ID, stable ID, and classification in both files against the manifest and revalidates the JSON-LD before storage. Missing, incomplete, duplicate, contradictory, or failed manifests are rejected; there is no implicit all-files fallback. Old output files are left untouched but ignored unless listed by the latest summary. Classification changes use the latest manifest entry and are queued for review without moving or overwriting the existing resource snapshot.
+Import reads only the records listed in the complete, successful `summary.json`. It checks the source and stable IDs, classification, derived metadata, and the source hash when the manifest includes one. Older Phase 1 manifests with a valid `run_at` remain supported. To keep source-file/manifest pairs consistent, finish extraction before importing from a shared working directory.
 
-The JSON-LD document stored in SQLite is JSON-serialized again (`json.dumps`); it is **structurally faithful** to the parsed OERSI JSON object, but whitespace, key ordering, and byte encoding need not match the source file byte-for-byte. The normalized metadata and repository identities remain separate from the source JSON-LD object. SQLite files and sidecars are ignored by Git.
+Files are read and revalidated before the SQLite write transaction, including JSON-LD context resolution. A single transaction applies the complete validated batch and records the latest successful manifest. Validation failures and database write failures leave the batch unapplied. Import counts describe the records processed from the manifest by incoming classification.
 
-### Inspect the repository
+The manifest's timezone-aware `run_at` supplies the observation time. A manifest older than the last imported manifest is rejected. An identical batch at the same time is a no-op, and different content at that instant is rejected. A single-record API import uses its explicit `observed_at` or the current UTC time. For each resource, older observations are ignored, identical observations at the same time are idempotent, and conflicting content at an already recorded instant is rejected. A migrated resource with an unknown last-observation hash ignores equal-time inputs conservatively.
+
+### Resource identity and automatic versions
+
+A resource keeps the same `resource_iri` throughout its history. Each version is an immutable snapshot containing the original OERSI JSON-LD structure and a separate normalized application projection. SQLite serializes the JSON object, so file whitespace and encoding can differ. The source's own ID remains the `source_iri`.
+
+- A new resource gets Version 1 and a current-version pointer.
+- An unchanged observation advances the resource's last-observed timestamp without creating a version.
+- A newer metadata change for a classified resource in the same container appends the next version, links to the preceding version, and advances the pointer, current title, and source URL transactionally.
+- A newer reversion to historical content also appends a version. The earlier snapshot keeps its original identity.
+- Classification changes and changed metadata for unclassified resources go to review. The current snapshot and container persist until acceptance.
+
+Change detection uses SHA-256 of JSON with sorted object keys and deterministic separators. It compares JSON content, including array order. Semantically equivalent RDF graphs may have different JSON hashes.
+
+Every new snapshot has an `observed_at` source observation and a `created_at` repository version-creation time. Both use UTC. When the source supplies a timezone-aware `dateModified`, the repository also records its UTC instant as `source_modified_at`. Missing values, dates without a time, and times without a zone leave `source_modified_at` null. The raw value remains in the original metadata.
+
+### Current and historical retrieval
 
 ```sh
 python -m src.repository_cli containers
 python -m src.repository_cli resources courses
 python -m src.repository_cli resources learning_materials
-python -m src.repository_cli get oersi-<stable-id>
-python -m src.repository_cli get 'https://example.org/oersi/resource/oersi-<stable-id>'
 python -m src.repository_cli stats
 python -m src.repository_cli unclassified
-python -m src.repository_cli pending
+
+resource=oersi-REPLACE_WITH_RESOURCE_ID
+python -m src.repository_cli get "$resource"
+python -m src.repository_cli history "$resource"
+python -m src.repository_cli get-version "$resource" --version 2
+python -m src.repository_cli get-version "https://example.org/oersi/resource/$resource/version/2"
+python -m src.repository_cli at-time "$resource" --timestamp 2026-11-23T12:00:00Z
+python -m src.repository_cli at-time "$resource" --timestamp 2026-11-23T12:00:00Z --basis repository
+python -m src.repository_cli compare "$resource" --from 1 --to 3
 ```
 
-`stats` reports both containers, their resource counts, unclassified records, stored versions, and pending updates. Pending candidate content is deduplicated by source IRI, canonical JSON SHA-256, and candidate classification. Canonicalization sorts object keys and uses deterministic JSON separators; this detects JSON content equality, **not full RDF/JSON-LD semantic equivalence**.
+Resource lookups accept the stable ID or resource IRI. `history` lists snapshots in order and includes each `previous_version_iri`. The API can also fetch that predecessor. `compare` lists added, removed, and changed top-level properties in the original and normalized JSON.
 
-### Persistent identifiers and semantic vocabulary
+- **Observation time (the default)** selects the highest version whose `observed_at` is at or before the requested UTC instant. Migrated Phase 2 snapshots use `created_at` as a fallback. A review accepted later appears retrospectively at the candidate's observation time.
+- **Repository acceptance time** (`--basis repository`) selects the highest version whose recorded `created_at` is at or before the requested UTC instant. It covers both automatic versions and accepted reviews. A new review version shares its creation timestamp with the acceptance decision. The timestamp is recorded inside the transaction and does not measure the exact instant of SQLite commit visibility.
 
-With base namespace `B` and stable Phase 1 resource ID `R`, the database forms:
+For example, if a classification change was observed at noon and accepted at 14:00 UTC, a 13:00 query after acceptance returns the new version on the observation timeline and the previous version on the repository timeline. Both timelines use inclusive boundaries and return no match before the first eligible version. Pending and rejected proposals remain in the review audit. Source-reported modification dates are preserved separately.
 
-- Container: `B/container/{courses|learning_materials}`
-- Stable resource: `B/resource/R`
-- Version 1: `B/resource/R/version/1`
-- Reserved named graph: `B/graph/resource/R/version/1`
+### Review classification and unclassified metadata changes
 
-The original OERSI `id` remains the resource's `source_iri` and is never replaced with the repository IRI. Resource IRIs persist independently from version IRIs. The first imported snapshot is Version 1 as observed by this repository, not a claim about the provider's original publication history.
+```sh
+python -m src.repository_cli pending
+python -m src.repository_cli review 1
+python -m src.repository_cli accept 1
+python -m src.repository_cli reject 2
+python -m src.repository_cli pending --all
+```
 
-The original JSON-LD continues to use the OERSI/AMB context. The repository vocabulary is separate from the source vocabulary and defaults to `<OERSI_REPOSITORY_BASE_IRI>/vocab/` (or can be set independently); `repo:currentVersion` denotes the current version from the stable resource to its snapshot. Future RDF export may also use `dcterms:hasVersion`, `dcterms:isVersionOf`, `prov:wasRevisionOf`, and `prov:generatedAtTime`. No `prov:wasRevisionOf` is asserted for Version 1. Named graph IRIs are reserved only: this phase adds no RDF triplestore or SPARQL endpoint. See [docs/repository-vocabulary.md](docs/repository-vocabulary.md) for term definitions.
+`review` shows the candidate, current snapshot, and property differences. Acceptance revalidates the candidate and checks that it still represents the latest observation against the same base version. It appends a version, updates the current pointer and container, and updates the unclassified listing in the same transaction. Rejection records a decision and leaves the resource untouched. `pending --all` also displays accepted, rejected, and superseded candidates and their decision timestamps.
 
-Repeated identical imports update `last_observed_at` without duplicating resources or versions. Changed JSON or reclassification creates a pending review entry; the current Version 1 snapshot and container assignment remain unchanged. No automatic schema migration, version-history workflow, or Version 2 creation is included in Phase 2.
+Repeating an active candidate refreshes its observation time while retaining its first detection time. A newer, different observation supersedes the active candidate. A superseded candidate can open a new review if observed again. A rejected candidate stays suppressed against the same base version and can be considered again against a later base version. Repeating an accepted candidate while it is current leaves the version intact. Observing that content again against a later current version follows the usual version or review rules.
+
+SQLite requires a decision timestamp for every resolved candidate and an accepted-version IRI exactly when the status is `accepted`. The accepted version must belong to the same resource. Pending candidates have neither field.
+
+### Version IRIs and RDF provenance
+
+With base namespace `B`, resource ID `R`, and version number `N`:
+
+| Identity | IRI |
+| --- | --- |
+| Container | `B/container/{courses\|learning_materials}` |
+| Stable resource | `B/resource/R` |
+| Immutable version | `B/resource/R/version/N` |
+| Reserved named graph | `B/graph/resource/R/version/N` |
+
+SQLite enforces same-resource version references and protects snapshots against updates and deletions. Its current-pointer trigger permits only a move to the immediate successor that links back to the current version. Ordinary updates to observation metadata remain permitted. The stored IRIs and timestamps prepare the repository for future RDF export. See [the repository vocabulary](docs/repository-vocabulary.md).
