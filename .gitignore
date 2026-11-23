@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Temporary and editor files
+*.tmp
+*.swp
+*.bak
+*~
+.DS_Store
+
+# Generated extraction datasets (keep directory placeholders only)
+data/raw/*.json
+data/courses/*.json
+data/learning_materials/*.json
+data/unclassified/*.json
+data/summary.json
+
+# Local review artifacts
+/oersi-phase1-review/
+/oersi-phase1-review.zip
+
