@@ -25,6 +25,8 @@ def test_missing_or_malformed_type_is_unclassified():
     assert classify_resource({"learningResourceType": "course"})[0] == "unclassified"
 
 
-def test_course_takes_precedence_for_mixed_types():
+def test_mixed_course_and_material_types_are_ambiguous():
     metadata = {"learningResourceType": [{"id": COURSE}, {"id": VIDEO}]}
-    assert classify_resource(metadata)[0] == "courses"
+    container, reason = classify_resource(metadata)
+    assert container == "unclassified"
+    assert "Ambiguous" in reason

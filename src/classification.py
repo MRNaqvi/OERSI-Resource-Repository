@@ -57,10 +57,16 @@ def _type_ids(metadata: Mapping[str, Any]) -> set[str]:
 def classify_resource(metadata: Mapping[str, Any]) -> tuple[str, str]:
     """Return ``(container, reason)``; uncertain metadata is unclassified."""
     type_ids = _type_ids(metadata)
-    if COURSE_TYPE_ID in type_ids:
+    has_course_type = COURSE_TYPE_ID in type_ids
+    matched_material_types = sorted(type_ids & LEARNING_MATERIAL_TYPE_IDS)
+    if has_course_type and matched_material_types:
+        return (
+            "unclassified",
+            "Ambiguous OERSI resource types: both course and learning material types are present",
+        )
+    if has_course_type:
         return "courses", f"Exact OERSI type match: {COURSE_TYPE_ID}"
 
-    matched_material_types = sorted(type_ids & LEARNING_MATERIAL_TYPE_IDS)
     if matched_material_types:
         return "learning_materials", "Recognized OERSI material type: " + ", ".join(
             matched_material_types
