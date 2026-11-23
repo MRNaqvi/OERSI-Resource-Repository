@@ -79,3 +79,26 @@ class FailingAmbContextLoader:
         failure = {"url": url, "kind": "network_or_http", "message": "offline fixture"}
         self.failures.append(failure)
         raise OSError("offline fixture")
+
+
+class FakeContextResponse:
+    def __init__(self, document: Any, link_header: str | None = None) -> None:
+        self._document = document
+        self.headers = {"Link": link_header} if link_header is not None else {}
+        self.url = OFFICIAL_AMB_CONTEXT_URL
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> Any:
+        return self._document
+
+
+class FakeContextSession:
+    def __init__(self, response: FakeContextResponse) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get(self, url: str, **kwargs: Any) -> FakeContextResponse:
+        self.calls.append((url, kwargs))
+        return self.response

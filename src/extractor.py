@@ -163,6 +163,20 @@ class Extractor:
                         **validation,
                     }
                 )
+                if validation["status"] != "valid":
+                    self.errors.append(
+                        {
+                            "stage": "jsonld_validation",
+                            "resource_id": app_metadata["oersi_id"],
+                            "status": validation["status"],
+                            "message": "; ".join(validation["errors"])
+                            or "; ".join(
+                                error.get("message", "Context resolution failed")
+                                for error in validation["context_resolution_errors"]
+                            ),
+                            "path": str(destination.relative_to(self.output_dir.parent)),
+                        }
+                    )
             except OSError as exc:
                 self.errors.append(
                     {"stage": "write_jsonld", "resource_id": app_metadata["oersi_id"], "message": str(exc)}

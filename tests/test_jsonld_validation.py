@@ -7,10 +7,13 @@ from pathlib import Path
 from pyld import jsonld
 
 from src.jsonld_validation import OFFICIAL_AMB_CONTEXT_URL, validate_jsonld_document, validate_jsonld_file
+from src.jsonld_validation import JsonLdContextLoader
 from src.metadata import normalize_metadata
 from tests.jsonld_fixtures import (
     AMB_CONTEXT_DOCUMENT,
     FailingAmbContextLoader,
+    FakeContextResponse,
+    FakeContextSession,
     LocalAmbContextLoader,
     resource_fixture,
 )
@@ -149,3 +152,26 @@ def test_invalid_json_serialization_is_reported(tmp_path: Path):
     assert result["valid"] is False
     assert result["status"] == "invalid_jsonld"
     assert "JSONDecodeError" in result["errors"][0]
+
+
+def test_context_loader_returns_context_document_with_null_context_url():
+    session = FakeContextSession(FakeContextResponse(AMB_CONTEXT_DOCUMENT))
+    loader = JsonLdContextLoader(session=session)
+
+    loaded = loader(OFFICIAL_AMB_CONTEXT_URL)
+
+    assert loaded["contextUrl"] is None
+    assert loaded["document"] == AMB_CONTEXT_DOCUMENT
+    assert session.calls[0][1]["timeout"] == loader.timeout
+
+
+def test_context_loader_does_not_misuse_raw_link_header_as_context_url():
+    link_header = '<https://example.edu/license>; rel="license", <https://example.edu/next>; rel="next"'
+    session = FakeContextSession(FakeContextResponse(AMB_CONTEXT_DOCUMENT, link_header))
+    loader = JsonLdContextLoader(session=session)
+
+    loaded = loader(OFFICIAL_AMB_CONTEXT_URL)
+
+    assert loaded["contextUrl"] is None
+    assert loaded["contextUrl"] != link_header
+    assert loaded["document"] == AMB_CONTEXT_DOCUMENT

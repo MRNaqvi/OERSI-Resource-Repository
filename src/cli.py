@@ -54,7 +54,12 @@ def main() -> int:
         "extraction_errors",
         "jsonld_validation",
     )}, ensure_ascii=False, indent=2))
-    return 0 if report["extraction_error_count"] == 0 else 1
+    validation = report["jsonld_validation"]
+    has_validation_failures = (
+        validation["invalid_jsonld_documents"] > 0
+        or validation["context_resolution_failures"] > 0
+    )
+    return 1 if report["extraction_error_count"] > 0 or has_validation_failures else 0
 
 
 if __name__ == "__main__":

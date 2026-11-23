@@ -41,7 +41,10 @@ class JsonLdContextLoader:
             raise ValueError(message)
 
         loaded = {
-            "contextUrl": response.headers.get("Link"),
+            # The fetched JSON document carries its own @context. The Link
+            # header may contain unrelated links or multiple relations; don't
+            # pass the raw header as JSON-LD's single contextUrl value.
+            "contextUrl": None,
             "documentUrl": response.url,
             "document": document,
         }

@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from src.extractor import Extractor
-from tests.jsonld_fixtures import LocalAmbContextLoader, resource_fixture
+from tests.jsonld_fixtures import FailingAmbContextLoader, LocalAmbContextLoader, resource_fixture
 
 
 class FakeClient:
@@ -63,3 +63,23 @@ def test_extraction_saves_source_jsonld_normalized_data_and_summary(tmp_path: Pa
         assert "@context" not in normalized
 
     assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["extraction_error_count"] == 0
+
+
+def test_context_resolution_failure_is_counted_and_source_file_is_kept(tmp_path: Path):
+    report = Extractor(
+        FakeClient(),
+        tmp_path,
+        limit=10,
+        sample_size=3,
+        target_per_category=1,
+        context_loader=FailingAmbContextLoader(),
+    ).run()
+
+    validation = report["jsonld_validation"]
+    assert validation["validated_documents"] == 0
+    assert validation["context_resolution_failures"] == 3
+    assert validation["invalid_jsonld_documents"] == 0
+    assert report["extraction_error_count"] == 3
+    assert len(list((tmp_path / "courses").glob("*.jsonld"))) == 1
+    assert len(list((tmp_path / "learning_materials").glob("*.jsonld"))) == 1
+    assert len(list((tmp_path / "unclassified").glob("*.jsonld"))) == 1
