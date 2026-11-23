@@ -381,23 +381,183 @@ class Repository:
         return resource_iri, version_iri, graph_iri
 
     def import_directory(self, data_dir: Path | str) -> dict[str, int]:
-        """Import generated Phase 1 JSON-LD and matching normalized records."""
+        """Import only records in the latest successful Phase 1 summary manifest.
+
+        Existing category files are never treated as proof of being current:
+        they are considered only when referenced by ``summary.json``.
+        """
         root = Path(data_dir)
         counts = {"courses": 0, "learning_materials": 0, "unclassified": 0, "errors": 0}
-        for category in (*CONTAINERS.keys(), "unclassified"):
-            for jsonld_path in sorted((root / category).glob("*.jsonld")):
-                normalized_path = root / "normalized" / category / f"{jsonld_path.stem}.json"
-                try:
-                    with jsonld_path.open(encoding="utf-8") as source_file:
-                        source = json.load(source_file)
-                    with normalized_path.open(encoding="utf-8") as normalized_file:
-                        normalized = json.load(normalized_file)
-                    result = self.import_resource(source, normalized, expected_category=category)
-                    counts[result] += 1
-                except Exception:
-                    counts["errors"] += 1
-                    raise
+        manifest_path = root / "summary.json"
+        manifest = self._load_extraction_manifest(manifest_path)
+        for entry in manifest:
+            resource_id = entry["stable_id"]
+            category = entry["container"]
+            jsonld_path = root / category / f"{resource_id}.jsonld"
+            normalized_path = root / "normalized" / category / f"{resource_id}.json"
+            if not jsonld_path.is_file():
+                raise ValueError(
+                    f"Latest extraction manifest lists {resource_id!r} in {category!r}, "
+                    f"but its JSON-LD file is missing: {jsonld_path}"
+                )
+            if not normalized_path.is_file():
+                raise ValueError(
+                    f"Latest extraction manifest lists {resource_id!r} in {category!r}, "
+                    f"but its normalized metadata file is missing: {normalized_path}"
+                )
+            try:
+                with jsonld_path.open(encoding="utf-8") as source_file:
+                    source = json.load(source_file)
+                with normalized_path.open(encoding="utf-8") as normalized_file:
+                    normalized = json.load(normalized_file)
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise ValueError(f"Could not read manifest resource {resource_id!r}: {exc}") from exc
+            if not isinstance(source, dict):
+                raise ValueError(f"Manifest JSON-LD for {resource_id!r} must have an object root")
+            if source.get("id") != entry["oersi_id"]:
+                raise ValueError(
+                    f"Manifest OERSI identifier for {resource_id!r} does not match {jsonld_path}"
+                )
+            if not isinstance(normalized, dict) or normalized.get("stable_id") != resource_id:
+                raise ValueError(
+                    f"Manifest stable ID for {resource_id!r} does not match {normalized_path}"
+                )
+            if normalized.get("oersi_id") != entry["oersi_id"]:
+                raise ValueError(
+                    f"Manifest OERSI identifier for {resource_id!r} does not match {normalized_path}"
+                )
+            actual_category, _ = classify_resource(source)
+            if actual_category != category:
+                raise ValueError(
+                    f"Latest manifest category {category!r} for {resource_id!r} conflicts with "
+                    f"the current JSON-LD classification {actual_category!r}"
+                )
+            normalized_classification = normalized.get("classification")
+            if (
+                not isinstance(normalized_classification, dict)
+                or normalized_classification.get("container") != category
+            ):
+                raise ValueError(
+                    f"Latest manifest category {category!r} for {resource_id!r} conflicts with "
+                    f"the normalized metadata at {normalized_path}"
+                )
+            result = self.import_resource(source, normalized, expected_category=category)
+            counts[result] += 1
         return counts
+
+    @staticmethod
+    def _load_extraction_manifest(manifest_path: Path) -> list[dict[str, str]]:
+        """Validate the latest completed Phase 1 summary and return its entries."""
+        if not manifest_path.is_file():
+            raise FileNotFoundError(
+                f"Latest extraction manifest is required but missing: {manifest_path}. "
+                "Run Phase 1 extraction successfully before importing; stale directory files are not imported."
+            )
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Could not read extraction manifest {manifest_path}: {exc}") from exc
+        if not isinstance(manifest, dict):
+            raise ValueError("Extraction manifest must have a JSON object root")
+
+        required_counts = (
+            "fetched_records",
+            "unique_records",
+            "extraction_error_count",
+            "successfully_classified_courses",
+            "successfully_classified_learning_materials",
+            "unclassified_records",
+        )
+        for field in required_counts:
+            value = manifest.get(field)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"Extraction manifest has missing or invalid {field!r}")
+        if manifest["extraction_error_count"] != 0 or manifest.get("extraction_errors"):
+            raise ValueError(
+                "Latest extraction manifest records extraction errors; complete a successful extraction before import"
+            )
+
+        unique_records = manifest["unique_records"]
+        if manifest["fetched_records"] < unique_records:
+            raise ValueError("Extraction manifest fetched_records is smaller than unique_records")
+        resources = manifest.get("resources")
+        if not isinstance(resources, list) or len(resources) != unique_records:
+            raise ValueError(
+                "Extraction manifest resources list is missing or incomplete "
+                f"(unique_records={unique_records}, entries={len(resources) if isinstance(resources, list) else 'invalid'})"
+            )
+        expected_category_counts = {
+            "courses": manifest["successfully_classified_courses"],
+            "learning_materials": manifest["successfully_classified_learning_materials"],
+            "unclassified": manifest["unclassified_records"],
+        }
+        if sum(expected_category_counts.values()) != unique_records:
+            raise ValueError("Extraction manifest category counts do not sum to unique_records")
+
+        validation = manifest.get("jsonld_validation")
+        if not isinstance(validation, dict):
+            raise ValueError("Extraction manifest has no JSON-LD validation summary")
+        if (
+            validation.get("invalid_jsonld_documents") != 0
+            or validation.get("context_resolution_failures") != 0
+            or validation.get("validated_documents") != unique_records
+        ):
+            raise ValueError(
+                "Latest extraction manifest does not confirm successful JSON-LD validation "
+                "for every unique resource"
+            )
+        validation_results = validation.get("results")
+        if not isinstance(validation_results, list) or len(validation_results) != unique_records:
+            raise ValueError("Extraction manifest JSON-LD validation results are incomplete")
+
+        entries_by_id: dict[str, dict[str, str]] = {}
+        source_ids: set[str] = set()
+        category_counts = {key: 0 for key in expected_category_counts}
+        for raw in resources:
+            if not isinstance(raw, dict):
+                raise ValueError("Extraction manifest contains a malformed resource entry")
+            stable_id = raw.get("stable_id")
+            oersi_id = raw.get("oersi_id")
+            category = raw.get("container")
+            if not isinstance(stable_id, str) or not stable_id:
+                raise ValueError("Extraction manifest resource has no stable_id")
+            if not isinstance(oersi_id, str) or not oersi_id.strip():
+                raise ValueError(f"Extraction manifest resource {stable_id!r} has no valid oersi_id")
+            if stable_id != stable_resource_id(oersi_id):
+                raise ValueError(f"Extraction manifest stable_id does not match oersi_id for {stable_id!r}")
+            if not isinstance(category, str) or category not in expected_category_counts:
+                raise ValueError(f"Extraction manifest resource {stable_id!r} has invalid category {category!r}")
+            if stable_id in entries_by_id:
+                previous = entries_by_id[stable_id]
+                kind = "contradictory" if previous != {"stable_id": stable_id, "oersi_id": oersi_id, "container": category} else "duplicate"
+                raise ValueError(f"Extraction manifest has a {kind} stable_id entry {stable_id!r}")
+            if oersi_id in source_ids:
+                raise ValueError(f"Extraction manifest has duplicate OERSI identifier {oersi_id!r}")
+            entry = {"stable_id": stable_id, "oersi_id": oersi_id, "container": category}
+            entries_by_id[stable_id] = entry
+            source_ids.add(oersi_id)
+            category_counts[category] += 1
+        if category_counts != expected_category_counts:
+            raise ValueError(
+                f"Extraction manifest category counts do not match resource entries: "
+                f"expected {expected_category_counts}, found {category_counts}"
+            )
+
+        results_by_id: dict[str, dict[str, Any]] = {}
+        for result in validation_results:
+            if not isinstance(result, dict) or result.get("status") != "valid" or result.get("valid") is not True:
+                raise ValueError("Extraction manifest contains an invalid JSON-LD validation result")
+            stable_id = result.get("stable_id")
+            if not isinstance(stable_id, str) or stable_id not in entries_by_id:
+                raise ValueError("Extraction manifest validation result references an unknown resource")
+            if stable_id in results_by_id:
+                raise ValueError(f"Extraction manifest has duplicate JSON-LD validation result {stable_id!r}")
+            if result.get("container") != entries_by_id[stable_id]["container"]:
+                raise ValueError(f"Extraction manifest validation category conflicts for {stable_id!r}")
+            results_by_id[stable_id] = result
+        if set(results_by_id) != set(entries_by_id):
+            raise ValueError("Extraction manifest is missing JSON-LD validation results for listed resources")
+        return list(entries_by_id.values())
 
     def import_resource(
         self,

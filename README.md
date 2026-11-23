@@ -98,7 +98,9 @@ python -m src.repository_cli init
 python -m src.repository_cli import --data-dir data
 ```
 
-Import validates each original JSON-LD with PyLD before storage. It reads `data/<category>/<stable_id>.jsonld` and its separate `data/normalized/<category>/<stable_id>.json` file. Source JSON-LD is stored byte-for-byte as the JSON text value (the JSON object is not rewritten or enriched); normalized fields and repository identity are stored separately. SQLite files and sidecars are ignored by Git.
+Import treats `data/summary.json` as the authoritative manifest from the latest completed extraction. It imports only entries in the manifest, verifies the successful extraction/JSON-LD validation counts and unique resource list, and requires a matching `data/<category>/<stable_id>.jsonld` plus `data/normalized/<category>/<stable_id>.json` for each entry. It checks the source OERSI ID, stable ID, and classification in both files against the manifest and revalidates the JSON-LD before storage. Missing, incomplete, duplicate, contradictory, or failed manifests are rejected; there is no implicit all-files fallback. Old output files are left untouched but ignored unless listed by the latest summary. Classification changes use the latest manifest entry and are queued for review without moving or overwriting the existing resource snapshot.
+
+The JSON-LD document stored in SQLite is JSON-serialized again (`json.dumps`); it is **structurally faithful** to the parsed OERSI JSON object, but whitespace, key ordering, and byte encoding need not match the source file byte-for-byte. The normalized metadata and repository identities remain separate from the source JSON-LD object. SQLite files and sidecars are ignored by Git.
 
 ### Inspect the repository
 

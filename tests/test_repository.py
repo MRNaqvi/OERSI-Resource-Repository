@@ -29,6 +29,59 @@ def make_repository(path: Path, base_iri: str = BASE_IRI) -> Repository:
     return repository
 
 
+def write_manifest(data_dir: Path, entries: list[dict[str, str]]) -> None:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    category_counts = {"courses": 0, "learning_materials": 0, "unclassified": 0}
+    for entry in entries:
+        category_counts[entry["container"]] += 1
+    resources = [
+        {"stable_id": entry["stable_id"], "oersi_id": entry["oersi_id"], "container": entry["container"]}
+        for entry in entries
+    ]
+    (data_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "fetched_records": len(entries),
+                "unique_records": len(entries),
+                "successfully_classified_courses": category_counts["courses"],
+                "successfully_classified_learning_materials": category_counts["learning_materials"],
+                "unclassified_records": category_counts["unclassified"],
+                "extraction_error_count": 0,
+                "extraction_errors": [],
+                "resources": resources,
+                "jsonld_validation": {
+                    "validated_documents": len(entries),
+                    "invalid_jsonld_documents": 0,
+                    "context_resolution_failures": 0,
+                    "results": [
+                        {
+                            "stable_id": entry["stable_id"],
+                            "container": entry["container"],
+                            "status": "valid",
+                            "valid": True,
+                        }
+                        for entry in entries
+                    ],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_resource_files(data_dir: Path, source: dict, normalized: dict, category: str) -> None:
+    resource_id = normalized["stable_id"]
+    jsonld_path = data_dir / category / f"{resource_id}.jsonld"
+    normalized_path = data_dir / "normalized" / category / f"{resource_id}.json"
+    jsonld_path.parent.mkdir(parents=True, exist_ok=True)
+    normalized_path.parent.mkdir(parents=True, exist_ok=True)
+    jsonld_path.write_text(json.dumps(source, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    normalized_path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def test_database_initialization_creates_exactly_two_unique_containers(tmp_path: Path):
     repository = make_repository(tmp_path / "repo.sqlite")
 
@@ -451,14 +504,175 @@ def test_import_directory_uses_phase1_paths(tmp_path: Path):
     source, normalized = make_record()
     category = normalized["classification"]["container"]
     resource_id = normalized["stable_id"]
-    source_dir = data_dir / category
-    normalized_dir = data_dir / "normalized" / category
-    source_dir.mkdir(parents=True)
-    normalized_dir.mkdir(parents=True)
-    (source_dir / f"{resource_id}.jsonld").write_text(json.dumps(source), encoding="utf-8")
-    (normalized_dir / f"{resource_id}.json").write_text(json.dumps(normalized), encoding="utf-8")
+    write_resource_files(data_dir, source, normalized, category)
+    write_manifest(data_dir, [{"stable_id": resource_id, "oersi_id": source["id"], "container": category}])
 
     result = repository.import_directory(data_dir)
 
     assert result == {"courses": 1, "learning_materials": 0, "unclassified": 0, "errors": 0}
     assert repository.stats()["resource_versions"] == 1
+
+
+def test_import_directory_excludes_stale_files_not_in_latest_manifest(tmp_path: Path):
+    repository = make_repository(tmp_path / "repo.sqlite")
+    data_dir = tmp_path / "data"
+    current_source, current_normalized = make_record("https://example.edu/current")
+    stale_source, stale_normalized = make_record("https://example.edu/stale")
+    write_resource_files(data_dir, current_source, current_normalized, "courses")
+    write_resource_files(data_dir, stale_source, stale_normalized, "courses")
+    write_manifest(
+        data_dir,
+        [{
+            "stable_id": current_normalized["stable_id"],
+            "oersi_id": current_source["id"],
+            "container": "courses",
+        }],
+    )
+
+    result = repository.import_directory(data_dir)
+
+    assert result == {"courses": 1, "learning_materials": 0, "unclassified": 0, "errors": 0}
+    assert repository.stats()["resources"] == 1
+    assert repository.get_resource(stale_normalized["stable_id"]) is None
+    assert (data_dir / "courses" / f"{stale_normalized['stable_id']}.jsonld").exists()
+    stats_after_first = repository.stats()
+    assert repository.import_directory(data_dir) == result
+    assert repository.stats() == stats_after_first
+
+
+def test_manifest_category_change_imports_latest_classification_and_ignores_old_file(tmp_path: Path):
+    repository = make_repository(tmp_path / "repo.sqlite")
+    data_dir = tmp_path / "data"
+    old_source, old_normalized = make_record("https://example.edu/reclassified", "https://w3id.org/kim/hcrt/course")
+    latest_source = copy.deepcopy(old_source)
+    latest_source["learningResourceType"] = [{"id": "https://w3id.org/kim/hcrt/textbook"}]
+    latest_normalized = normalize_metadata(latest_source)
+    latest_category, latest_reason = classify_resource(latest_source)
+    latest_normalized["classification"] = {"container": latest_category, "reason": latest_reason}
+    write_resource_files(data_dir, old_source, old_normalized, "courses")
+    write_manifest(
+        data_dir,
+        [{
+            "stable_id": old_normalized["stable_id"],
+            "oersi_id": old_source["id"],
+            "container": "courses",
+        }],
+    )
+    initial = repository.import_directory(data_dir)
+    assert initial["courses"] == 1
+
+    write_resource_files(data_dir, old_source, old_normalized, "courses")
+    write_resource_files(data_dir, latest_source, latest_normalized, "learning_materials")
+    write_manifest(
+        data_dir,
+        [{
+            "stable_id": latest_normalized["stable_id"],
+            "oersi_id": latest_source["id"],
+            "container": "learning_materials",
+        }],
+    )
+
+    result = repository.import_directory(data_dir)
+
+    assert result == {"courses": 0, "learning_materials": 1, "unclassified": 0, "errors": 0}
+    assert repository.stats()["courses"] == 1
+    assert repository.stats()["learning_materials"] == 0
+    imported = repository.get_resource(latest_normalized["stable_id"])
+    assert imported["source_iri"] == latest_source["id"]
+    assert imported["current_version"]["original_jsonld"] == old_source
+    assert repository.list_pending_updates()[0]["candidate_classification"] == "learning_materials"
+    assert json.loads(repository.list_pending_updates()[0]["candidate_jsonld"]) == latest_source
+    assert (data_dir / "courses" / f"{old_normalized['stable_id']}.jsonld").exists()
+
+
+def test_import_directory_requires_latest_complete_successful_manifest(tmp_path: Path):
+    repository = make_repository(tmp_path / "repo.sqlite")
+    data_dir = tmp_path / "data"
+    source, normalized = make_record()
+    category = normalized["classification"]["container"]
+    write_resource_files(data_dir, source, normalized, category)
+    with pytest.raises(FileNotFoundError, match="Latest extraction manifest"):
+        repository.import_directory(data_dir)
+
+    write_manifest(data_dir, [{"stable_id": normalized["stable_id"], "oersi_id": source["id"], "container": category}])
+
+    summary_path = data_dir / "summary.json"
+    manifest = json.loads(summary_path.read_text(encoding="utf-8"))
+    manifest["resources"] = []
+    summary_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete"):
+        repository.import_directory(data_dir)
+
+    write_manifest(data_dir, [{"stable_id": normalized["stable_id"], "oersi_id": source["id"], "container": category}])
+    manifest = json.loads(summary_path.read_text(encoding="utf-8"))
+    manifest["extraction_error_count"] = 1
+    manifest["extraction_errors"] = [{"stage": "request", "message": "test failure"}]
+    summary_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="extraction errors"):
+        repository.import_directory(data_dir)
+    assert repository.stats()["resources"] == 0
+
+
+def test_manifest_missing_resource_file_fails_without_falling_back_to_stale_files(tmp_path: Path):
+    repository = make_repository(tmp_path / "repo.sqlite")
+    data_dir = tmp_path / "data"
+    source, normalized = make_record()
+    category = normalized["classification"]["container"]
+    write_manifest(data_dir, [{"stable_id": normalized["stable_id"], "oersi_id": source["id"], "container": category}])
+
+    with pytest.raises(ValueError, match="JSON-LD file is missing"):
+        repository.import_directory(data_dir)
+    assert repository.stats()["resources"] == 0
+
+
+def test_manifest_missing_normalized_file_fails_clearly(tmp_path: Path):
+    repository = make_repository(tmp_path / "repo.sqlite")
+    data_dir = tmp_path / "data"
+    source, normalized = make_record()
+    category = normalized["classification"]["container"]
+    write_resource_files(data_dir, source, normalized, category)
+    (data_dir / "normalized" / category / f"{normalized['stable_id']}.json").unlink()
+    write_manifest(data_dir, [{"stable_id": normalized["stable_id"], "oersi_id": source["id"], "container": category}])
+
+    with pytest.raises(ValueError, match="normalized metadata file is missing"):
+        repository.import_directory(data_dir)
+    assert repository.stats()["resources"] == 0
+
+
+def test_manifest_category_must_match_jsonld_and_normalized_files(tmp_path: Path):
+    repository = make_repository(tmp_path / "repo.sqlite")
+    data_dir = tmp_path / "data"
+    source, normalized = make_record(type_id="https://w3id.org/kim/hcrt/course")
+    write_resource_files(data_dir, source, normalized, "courses")
+    write_manifest(
+        data_dir,
+        [{"stable_id": normalized["stable_id"], "oersi_id": source["id"], "container": "learning_materials"}],
+    )
+
+    with pytest.raises(ValueError, match="JSON-LD file is missing"):
+        repository.import_directory(data_dir)
+    assert repository.stats()["resources"] == 0
+
+    # A file exists under the manifest category, but its source type still disagrees.
+    write_resource_files(data_dir, source, normalized, "learning_materials")
+    with pytest.raises(ValueError, match="conflicts with the current JSON-LD classification"):
+        repository.import_directory(data_dir)
+    assert repository.stats()["resources"] == 0
+
+
+@pytest.mark.parametrize("contradictory", [False, True])
+def test_duplicate_manifest_identifiers_are_rejected(tmp_path: Path, contradictory: bool):
+    repository = make_repository(tmp_path / "repo.sqlite")
+    data_dir = tmp_path / "data"
+    source, normalized = make_record()
+    category = normalized["classification"]["container"]
+    write_resource_files(data_dir, source, normalized, category)
+    entry = {"stable_id": normalized["stable_id"], "oersi_id": source["id"], "container": category}
+    duplicate = dict(entry)
+    if contradictory:
+        duplicate["container"] = "learning_materials"
+    write_manifest(data_dir, [entry, duplicate])
+
+    with pytest.raises(ValueError, match="manifest has a (duplicate|contradictory) stable_id"):
+        repository.import_directory(data_dir)
+    assert repository.stats()["resources"] == 0
