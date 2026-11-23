@@ -52,6 +52,7 @@ def main() -> int:
         "unclassified_records",
         "extraction_error_count",
         "extraction_errors",
+        "jsonld_validation",
     )}, ensure_ascii=False, indent=2))
     return 0 if report["extraction_error_count"] == 0 else 1
 

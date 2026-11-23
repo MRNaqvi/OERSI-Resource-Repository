@@ -1,6 +1,6 @@
 # OERSI Resource Repository — Phase 1: Data Extraction
 
-A small, metadata-only Python client for the official OERSI Elasticsearch search API. It stores original API search responses, derives normalized metadata, and classifies records without downloading PDFs, videos, or course content.
+A small, metadata-only Python client for the official OERSI Elasticsearch search API. It stores original API search responses, writes each original OERSI resource as a top-level JSON-LD document, stores derived application metadata separately, and classifies records without downloading PDFs, videos, or course content.
 
 ## API and observed metadata
 
@@ -18,6 +18,19 @@ Classification uses exact OERSI type identifiers from the observed `learningReso
 - **Unclassified:** missing type identifiers, unrecognized types, and ambiguous broad types such as `other`, `portal`, and `web_page` unless the same record also has a recognized concrete material type. An exact course type takes precedence if multiple types are present.
 
 The API's `type: LearningResource` is the general schema type and does not distinguish courses from learning materials; the specific `learningResourceType` IDs provide that distinction. The vocabulary is intentionally allowlisted so new or ambiguous values are not silently assigned.
+
+## JSON-LD and output layout
+
+Each category output is a JSON-LD 1.1 document serialized directly from the OERSI API hit's `_source` object. The source object remains at the document root, including its original `@context`, `id`, `type`, multilingual values, nested properties, and any unrecognized source properties. The extractor does not rewrite `id` as `@id` or `type` as `@type`; the official AMB context at <https://w3id.org/kim/amb/context.jsonld> defines those aliases (and `@vocab: http://schema.org/`).
+
+- `data/courses/<stable_id>.jsonld`
+- `data/learning_materials/<stable_id>.jsonld`
+- `data/unclassified/<stable_id>.jsonld`
+- `data/normalized/<category>/<stable_id>.json` — repository-specific `stable_id`, `oersi_id`, `classification`, and normalized fields only. It does not contain `@context` or an embedded copy of source metadata.
+- `data/raw/` — full original OERSI API response bodies.
+- `data/summary.json` — extraction counts, errors, per-document JSON-LD validation states, and expanded identifiers/types.
+
+PyLD performs JSON-LD expansion on each serialized `.jsonld` output. Validation checks JSON parsing, the presence and reference to the official AMB context, successful expansion, the expanded identifier against the original OERSI `id`, and the expanded type values against the original type terms processed using that context. Network/HTTP context retrieval failures are reported separately from invalid JSON-LD. Validation is non-mutating; failed documents are retained unchanged and their errors are recorded in the summary. Automated tests use a controlled local context loader and do not require network access.
 
 ## Setup
 
@@ -39,11 +52,7 @@ The default run fetches a broad 20-record sample first, then makes targeted sear
 python -m src.cli --limit 40 --sample-size 20 --target-per-category 10 --timeout 30
 ```
 
-Outputs:
-
-- `data/raw/` — full JSON responses for each API request.
-- `data/courses/`, `data/learning_materials/`, and `data/unclassified/` — one normalized JSON record per resource. Each record includes `source_metadata`, preserving the original OERSI metadata object, and an `oersi-<sha256-prefix>` stable ID derived only from the OERSI identifier.
-- `data/summary.json` — fetched and unique record counts, classification counts, errors, request response paths, and classification rule.
+Outputs follow the layout in [JSON-LD and output layout](#json-ld-and-output-layout). Stable filenames use an `oersi-<sha256-prefix>` identifier derived only from the OERSI identifier.
 
 A rerun overwrites records with the same stable ID; this phase does not implement immutable versions, snapshots, identity reconciliation, or update history. Existing output files not returned by a later run are not automatically deleted.
 
