@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import quote
@@ -85,7 +84,7 @@ def stable_resource_id(oersi_id: str) -> str:
 
 
 def normalize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
-    """Extract normalized fields while retaining source metadata unchanged."""
+    """Extract application fields without copying or mutating source metadata."""
     oersi_id = metadata.get("id")
     if not isinstance(oersi_id, str) or not oersi_id.strip():
         raise ValueError("OERSI metadata has no usable 'id' identifier")
@@ -127,7 +126,6 @@ def normalize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
         "publication_date": _localized_text(metadata.get("datePublished")),
         "modification_date": _localized_text(metadata.get("dateModified")),
         "source_provider": _source_providers(metadata),
-        "source_metadata": json.loads(json.dumps(metadata, ensure_ascii=False)),
     }
 
 

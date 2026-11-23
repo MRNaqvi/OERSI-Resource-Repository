@@ -9,6 +9,7 @@ from typing import Any
 
 from src.classification import COURSE_TYPE_ID, LEARNING_MATERIAL_TYPE_IDS, classify_resource
 from src.metadata import filename_for, normalize_metadata
+from src.jsonld_validation import JsonLdContextLoader, validate_jsonld_file
 from src.oersi_client import OERSIClient
 
 
@@ -20,6 +21,7 @@ class Extractor:
         limit: int = 100,
         sample_size: int = 20,
         target_per_category: int = 10,
+        context_loader: Any | None = None,
     ) -> None:
         if limit < 1:
             raise ValueError("limit must be at least 1")
@@ -32,6 +34,7 @@ class Extractor:
         self.limit = limit
         self.sample_size = sample_size
         self.target_per_category = target_per_category
+        self.context_loader = context_loader or JsonLdContextLoader()
         self.errors: list[dict[str, str]] = []
         self.records: dict[str, dict[str, Any]] = {}
         self.api_hits_fetched = 0
@@ -70,8 +73,11 @@ class Extractor:
                 normalized = normalize_metadata(metadata)
                 container, reason = classify_resource(metadata)
                 self.records[identifier] = {
-                    **normalized,
-                    "classification": {"container": container, "reason": reason},
+                    "source": metadata,
+                    "normalized": {
+                        **normalized,
+                        "classification": {"container": container, "reason": reason},
+                    },
                 }
             except (TypeError, ValueError, RecursionError) as exc:
                 self.errors.append(
@@ -90,7 +96,7 @@ class Extractor:
 
     def _category_count(self, container: str) -> int:
         return sum(
-            record["classification"]["container"] == container
+            record["normalized"]["classification"]["container"] == container
             for record in self.records.values()
         )
 
@@ -124,22 +130,65 @@ class Extractor:
         }
         self._top_up("learning_materials", material_query, "top_up_learning_materials")
 
+        validation_results: list[dict[str, Any]] = []
         for record in self.records.values():
-            container = record["classification"]["container"]
+            source = record["source"]
+            app_metadata = record["normalized"]
+            container = app_metadata["classification"]["container"]
             directory = {
                 "courses": "courses",
                 "learning_materials": "learning_materials",
                 "unclassified": "unclassified",
             }[container]
-            destination = self.output_dir / directory / filename_for(record["stable_id"])
-            destination.parent.mkdir(parents=True, exist_ok=True)
+            stable_id = app_metadata["stable_id"]
+            destination = self.output_dir / directory / f"{filename_for(stable_id)}ld"
+            normalized_destination = (
+                self.output_dir / "normalized" / directory / filename_for(stable_id)
+            )
             try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(
-                    json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                    json.dumps(source, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                )
+                validation = validate_jsonld_file(
+                    destination,
+                    expected_id=source.get("id") if isinstance(source.get("id"), str) else None,
+                    document_loader=self.context_loader,
+                )
+                validation_results.append(
+                    {
+                        "stable_id": stable_id,
+                        "container": container,
+                        "path": str(destination.relative_to(self.output_dir.parent)),
+                        **validation,
+                    }
+                )
+                if validation["status"] != "valid":
+                    self.errors.append(
+                        {
+                            "stage": "jsonld_validation",
+                            "resource_id": app_metadata["oersi_id"],
+                            "status": validation["status"],
+                            "message": "; ".join(validation["errors"])
+                            or "; ".join(
+                                error.get("message", "Context resolution failed")
+                                for error in validation["context_resolution_errors"]
+                            ),
+                            "path": str(destination.relative_to(self.output_dir.parent)),
+                        }
+                    )
+            except OSError as exc:
+                self.errors.append(
+                    {"stage": "write_jsonld", "resource_id": app_metadata["oersi_id"], "message": str(exc)}
+                )
+            try:
+                normalized_destination.parent.mkdir(parents=True, exist_ok=True)
+                normalized_destination.write_text(
+                    json.dumps(app_metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
                 )
             except OSError as exc:
                 self.errors.append(
-                    {"stage": "write", "resource_id": record["oersi_id"], "message": str(exc)}
+                    {"stage": "write_normalized", "resource_id": app_metadata["oersi_id"], "message": str(exc)}
                 )
 
         counts = {
@@ -158,6 +207,14 @@ class Extractor:
             "extraction_error_count": len(self.errors),
             "extraction_errors": self.errors,
             "raw_response_files": self.raw_files,
+            "jsonld_validation": {
+                "validated_documents": sum(item["status"] == "valid" for item in validation_results),
+                "invalid_jsonld_documents": sum(item["status"] == "invalid_jsonld" for item in validation_results),
+                "context_resolution_failures": sum(
+                    item["status"] == "context_resolution_failure" for item in validation_results
+                ),
+                "results": validation_results,
+            },
             "classification_rule": (
                 f"Exact {COURSE_TYPE_ID} IDs are courses. Recognized concrete OERSI HCRT material IDs "
                 "are learning materials; absent, unknown, portal, web_page, and broad 'other' types "
@@ -165,9 +222,9 @@ class Extractor:
             ),
             "resources": [
                 {
-                    "stable_id": record["stable_id"],
-                    "oersi_id": record["oersi_id"],
-                    "container": record["classification"]["container"],
+                    "stable_id": record["normalized"]["stable_id"],
+                    "oersi_id": record["normalized"]["oersi_id"],
+                    "container": record["normalized"]["classification"]["container"],
                 }
                 for record in self.records.values()
             ],

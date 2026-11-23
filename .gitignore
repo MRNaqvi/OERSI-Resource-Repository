@@ -20,8 +20,12 @@ venv/
 # Generated extraction datasets (keep directory placeholders only)
 data/raw/*.json
 data/courses/*.json
+data/courses/*.jsonld
 data/learning_materials/*.json
+data/learning_materials/*.jsonld
 data/unclassified/*.json
+data/unclassified/*.jsonld
+data/normalized/**/*.json
 data/summary.json
 
 # Local review artifacts

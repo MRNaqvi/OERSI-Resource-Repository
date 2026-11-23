@@ -1,9 +1,11 @@
+import copy
+
 import pytest
 
 from src.metadata import normalize_metadata, stable_resource_id
 
 
-def test_normalizes_nested_oersi_fields_and_preserves_source():
+def test_normalizes_nested_oersi_fields_without_mutating_source():
     source = {
         "id": "https://example.edu/resource/123",
         "name": "A resource",
@@ -22,6 +24,7 @@ def test_normalizes_nested_oersi_fields_and_preserves_source():
         "dateModified": "2025-02-03",
     }
 
+    original = copy.deepcopy(source)
     result = normalize_metadata(source)
 
     assert result["oersi_id"] == source["id"]
@@ -35,7 +38,8 @@ def test_normalizes_nested_oersi_fields_and_preserves_source():
     assert result["source_provider"] == ["Example"]
     assert result["publication_date"] == "2025-01-02"
     assert result["modification_date"] == "2025-02-03"
-    assert result["source_metadata"] == source
+    assert source == original
+    assert "source_metadata" not in result
 
 
 def test_missing_optional_fields_are_safe():
