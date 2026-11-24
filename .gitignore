@@ -27,6 +27,8 @@ data/unclassified/*.json
 data/unclassified/*.jsonld
 data/normalized/**/*.json
 data/summary.json
+/data/rdf/
+/data/rdf-contexts/
 
 # Local Phase 2 databases and SQLite sidecar files
 *.sqlite

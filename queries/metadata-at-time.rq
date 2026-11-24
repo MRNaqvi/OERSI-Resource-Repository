@@ -1,0 +1,20 @@
+# Bind ?at as an xsd:dateTime, or use the query execution time.
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+
+SELECT ?resource ?basis ?versionNumber ?version ?graph ?timestamp WHERE {
+  VALUES (?basis ?clock) {
+    ("observation" repo:observedAt)
+    ("repository" prov:generatedAtTime)
+  }
+  BIND(COALESCE(?at, NOW()) AS ?cutoff)
+  ?resource dcterms:hasVersion ?version .
+  ?version repo:versionNumber ?versionNumber ; repo:graphIRI ?graph ; ?clock ?timestamp .
+  FILTER (?timestamp <= ?cutoff)
+  FILTER NOT EXISTS {
+    ?resource dcterms:hasVersion ?later .
+    ?later repo:versionNumber ?laterNumber ; ?clock ?laterTime .
+    FILTER (?laterNumber > ?versionNumber && ?laterTime <= ?cutoff)
+  }
+}
+ORDER BY ?resource ?basis

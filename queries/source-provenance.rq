@@ -1,0 +1,10 @@
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+
+SELECT ?resource ?versionNumber ?version ?source ?sourceModified ?created ?observed WHERE {
+  ?resource dcterms:hasVersion ?version .
+  ?version repo:versionNumber ?versionNumber ; dcterms:source ?source ;
+           prov:generatedAtTime ?created ; repo:observedAt ?observed .
+  OPTIONAL { ?version repo:sourceModifiedAt ?sourceModified . }
+}
+ORDER BY ?resource ?versionNumber

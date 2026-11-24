@@ -67,10 +67,13 @@ def _record_expansion_error(
     result: dict[str, Any], exc: Exception, loader: Any, failure_count_before: int
 ) -> dict[str, Any]:
     failures = getattr(loader, "failures", [])[failure_count_before:]
-    network_failures = [failure for failure in failures if failure.get("kind") == "network_or_http"]
-    if network_failures:
+    resolution_failures = [
+        failure for failure in failures
+        if failure.get("kind") in {"network_or_http", "missing_pinned_context"}
+    ]
+    if resolution_failures:
         result["status"] = "context_resolution_failure"
-        result["context_resolution_errors"] = network_failures
+        result["context_resolution_errors"] = resolution_failures
         return result
 
     invalid_context_failures = [
@@ -84,10 +87,20 @@ def _record_expansion_error(
     return result
 
 
+def jsonld_processing_options(loader: Any, *, isolate_contexts: bool = True) -> dict[str, Any]:
+    """Give pinned processing its own resolver to prevent cache sharing across baselines."""
+    options = {"documentLoader": loader, "processingMode": "json-ld-1.1"}
+    if isolate_contexts:
+        options["contextResolver"] = jsonld.ContextResolver({}, loader)
+    return options
+
+
 def validate_jsonld_document(
     document: Any,
     expected_id: str | None = None,
     document_loader: Any | None = None,
+    *,
+    isolate_contexts: bool = False,
 ) -> dict[str, Any]:
     """Parse/expand a JSON-LD document without modifying its source object.
 
@@ -132,7 +145,7 @@ def validate_jsonld_document(
     try:
         expanded = jsonld.expand(
             document,
-            options={"documentLoader": loader, "processingMode": "json-ld-1.1"},
+            options=jsonld_processing_options(loader, isolate_contexts=isolate_contexts),
         )
     except Exception as exc:  # PyLD wraps remote loader and JSON-LD errors in JsonLdError.
         return _record_expansion_error(result, exc, loader, failure_count_before)
@@ -148,7 +161,7 @@ def validate_jsonld_document(
     try:
         type_probe = jsonld.expand(
             {"@context": document["@context"], type_term: source_types},
-            options={"documentLoader": loader, "processingMode": "json-ld-1.1"},
+            options=jsonld_processing_options(loader, isolate_contexts=isolate_contexts),
         )
         expected_expanded_types = type_probe[0].get("@type", []) if type_probe else []
     except Exception as exc:
