@@ -694,6 +694,30 @@ class Repository:
             (identifier, identifier),
         ).fetchone()
 
+    def export_snapshot(self, identifier: str | None = None) -> dict[str, Any]:
+        """Read containers, selected resources, and all their versions in one snapshot."""
+        with self._connection() as connection:
+            self._ensure_initialized(connection)
+            containers = [dict(row) for row in connection.execute("SELECT * FROM containers ORDER BY container_id")]
+            resources = {
+                row["resource_id"]: {**dict(row), "versions": []}
+                for row in connection.execute(
+                    """SELECT * FROM resources
+                       WHERE ? IS NULL OR resource_id = ? OR resource_iri = ? ORDER BY resource_id""",
+                    (identifier, identifier, identifier),
+                )
+            }
+            if identifier is not None and not resources:
+                raise LookupError(f"Resource not found: {identifier!r}")
+            for version in connection.execute(
+                """SELECT v.* FROM resource_versions AS v JOIN resources AS r USING (resource_id)
+                   WHERE ? IS NULL OR r.resource_id = ? OR r.resource_iri = ?
+                   ORDER BY v.resource_id, v.version_number""",
+                (identifier, identifier, identifier),
+            ):
+                resources[version["resource_id"]]["versions"].append(self._version_dict(version))
+        return {"containers": containers, "resources": list(resources.values())}
+
     @staticmethod
     def _version_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
         if row is None:

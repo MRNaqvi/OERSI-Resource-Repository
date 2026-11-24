@@ -172,4 +172,84 @@ With base namespace `B`, resource ID `R`, and version number `N`:
 | Immutable version | `B/resource/R/version/N` |
 | Reserved named graph | `B/graph/resource/R/version/N` |
 
-SQLite enforces same-resource version references and protects snapshots against updates and deletions. Its current-pointer trigger permits only a move to the immediate successor that links back to the current version. Ordinary updates to observation metadata remain permitted. The stored IRIs and timestamps prepare the repository for future RDF export. See [the repository vocabulary](docs/repository-vocabulary.md).
+SQLite enforces same-resource version references and protects snapshots against updates and deletions. Its current-pointer trigger permits only a move to the immediate successor that links back to the current version. Ordinary updates to observation metadata remain permitted. The RDF export uses the same stored IRIs and timestamps. [Repository vocabulary](docs/repository-vocabulary.md)
+
+## RDF export and local SPARQL
+
+SQLite remains authoritative. The RDF layer reads the repository in one read-only snapshot, then builds an in-memory RDFLib dataset. The default graph holds repository resources, containers, version history, and provenance. Each immutable version has its own primary named graph at `{base}/graph/resource/{resource_id}/version/{version_number}`. It contains the RDF interpretation of the source JSON-LD default graph. Source triples are queried with `GRAPH` and stay separate from repository metadata.
+
+PyLD revalidates and converts the stored JSON-LD using JSON-LD 1.1 processing and the same approved offline context snapshot for both operations. The original resource `id`, `type`, and `@context` stay intact. The source IRI identifies the original entity in the named graph. The version's `dcterms:source` points there from the default graph. If a source document already names graphs, including graphs declared with nested `@graph`, those graphs get distinct version-scoped names. Repository statements record each original name so its scope stays recoverable. [JSON-LD to RDF processing](https://www.w3.org/TR/json-ld11-api/#deserialize-json-ld-to-rdf-algorithm)
+
+### Capture and approve a context baseline
+
+```sh
+python -m src.rdf_cli acquire-contexts --output data/rdf-contexts/baseline-1
+python -m src.rdf_cli inspect-contexts --input data/rdf-contexts/baseline-1
+```
+
+`acquire-contexts` explicitly uses the network. It follows PyLD's context requests for all selected stored versions and saves each original HTTP response body in `documents/<sha256>.jsonld`. The manifest records the capture time, each requested URL, its final URL after redirects, and the SHA-256 of the saved body. Add `--resource ID_OR_IRI` to capture only the dependencies of one resource's complete history. Nested contexts and relative imports resolve against the final remote document URL. Relative identifiers in resource data still use the source JSON-LD's base rules.
+
+Review `manifest.json` and the saved documents before approving the baseline. `inspect-contexts` verifies the document hashes and prints the exact manifest fingerprint. Record that fingerprint separately and supply it explicitly on export or a SQLite-backed query. Both `--context-snapshot PATH` and `--context-sha256 SHA256` are global options. The equivalent environment settings are `OERSI_RDF_CONTEXT_SNAPSHOT` and `OERSI_RDF_CONTEXT_SHA256`.
+
+```sh
+export OERSI_RDF_CONTEXT_SNAPSHOT=data/rdf-contexts/baseline-1
+export OERSI_RDF_CONTEXT_SHA256='<reviewed manifest_sha256>'
+```
+
+The exporter verifies the approved manifest fingerprint and every document hash before using the pins. Both validation and conversion use verified bytes in memory with isolated PyLD resolvers. An unrecognized URL, missing pin, or hash mismatch aborts the export. RDF export and SQLite-backed queries use no network. Keep the approved manifest and documents with the exported RDF, and record the digest printed by the export command.
+
+When a context changes or new source records need additional contexts, acquire a candidate in a new directory and compare its URLs and document hashes with the prior baseline. Acquisition refuses to replace an existing directory. Using the new directory and its separately reviewed fingerprint explicitly approves it for a new export. Keep the older snapshot and its approved fingerprint to reproduce earlier exports.
+
+Phase 1–3 did not record the context bytes used during ingestion. A newly acquired snapshot establishes a baseline for future RDF exports of the existing JSON-LD. It cannot recover or attest to an earlier interpretation. Separately approved baselines can yield different RDF for the same stored version and graph IRIs.
+
+### Export and validate
+
+```sh
+python -m src.rdf_cli export --format trig --output data/rdf/repository.trig
+python -m src.rdf_cli export --format nquads --output data/rdf/repository.nq
+python -m src.rdf_cli validate --input data/rdf/repository.trig
+python -m src.rdf_cli validate --input data/rdf/repository.nq
+```
+
+With an approved baseline configured, the exporter includes every accepted version by default. Add `--resource ID_OR_IRI` to export a single resource and its complete version history. Export writes a new file and refuses to replace an existing one. Git ignores the generated `data/rdf/` and `data/rdf-contexts/` directories. Validation parses the dataset and reports graph and quad counts. SQLite access uses the same database and namespace settings as `src.repository_cli`. Place global options such as `--database PATH`, `--base-iri IRI`, and `--vocabulary-iri IRI` before the command.
+
+TriG and N-Quads preserve the default and nonempty named graph boundaries. TriG writes explicit named graph blocks, including empty ones. N-Quads expresses graphs through quads, and a receiving RDF library can discard empty graph registrations. The default-graph mapping still records their IRIs. Blank nodes retain their relationships within one source version, including across that version's source graphs. Their labels are local to each export and may change on reload. [RDF datasets](https://www.w3.org/TR/rdf11-concepts/#section-dataset) · [N-Quads](https://www.w3.org/TR/n-quads/)
+
+### Run sample queries
+
+```sh
+python -m src.rdf_cli query --file queries/list-courses.rq
+python -m src.rdf_cli query --input data/rdf/repository.nq --file queries/list-versions.rq
+resource='https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9'
+python -m src.rdf_cli query --input data/rdf/repository.nq --file queries/current-metadata.rq \
+  --bind-iri "resource=$resource"
+python -m src.rdf_cli query --input data/rdf/repository.nq --file queries/historical-metadata.rq \
+  --bind-iri "resource=$resource" --bind-integer versionNumber=1
+python -m src.rdf_cli query --input data/rdf/repository.nq --file queries/metadata-at-time.rq \
+  --bind-iri "resource=$resource" --bind-time at=2026-11-23T12:00:00Z
+```
+
+Choose an existing resource IRI from the listing for resource-specific queries. Without `--input`, the CLI materializes the current SQLite snapshot. With `--input`, it queries the local file independently of SQLite and the source context. The CLI supplies the configured `repo:` prefix. To use the samples in a different SPARQL tool, declare `repo:` with your repository vocabulary IRI. Typed bindings supply values without rewriting the SPARQL text.
+
+| Sample | Result and optional bindings |
+| --- | --- |
+| [list-courses.rq](queries/list-courses.rq) | Current members of Courses |
+| [list-learning-materials.rq](queries/list-learning-materials.rq) | Current members of Learning Materials |
+| [current-metadata.rq](queries/current-metadata.rq) | Current version triples, optionally bound to `resource` |
+| [historical-metadata.rq](queries/historical-metadata.rq) | Historical triples, optionally bound to `resource`, `versionNumber`, or the version IRI as `version` |
+| [list-versions.rq](queries/list-versions.rq) | Version numbers, IRIs, graph IRIs, and current flags |
+| [version-revisions.rq](queries/version-revisions.rq) | Immediate predecessor relationships |
+| [classification-changes.rq](queries/classification-changes.rq) | Differences in classification between successive accepted versions |
+| [metadata-at-time.rq](queries/metadata-at-time.rq) | Observation and repository timelines side by side. Bind `at` for a specific cutoff. Without it, the query uses the current time. |
+| [source-provenance.rq](queries/source-provenance.rq) | Source IRI, observation time, version creation time, and optional source-reported instant |
+| [compare-version-triples.rq](queries/compare-version-triples.rq) | Ground triples added or removed in the primary source graphs. Bind `fromVersion` and `toVersion` to override Versions 1 and 2. |
+
+SELECT returns SPARQL Results JSON with term types, datatype IRIs, and language tags. ASK returns a JSON boolean. The local evaluator accepts SELECT and ASK. It checks the parsed query and algebra before evaluation and rejects `SERVICE`, `FROM`, `FROM NAMED`, and update syntax. Selecting triples with `GRAPH` uses only the materialized dataset. Queries that build from SQLite use the approved local context snapshot. There is no HTTP SPARQL service or separate triplestore. [RDFLib SPARQL processor](https://rdflib.readthedocs.io/en/latest/apidocs/rdflib.plugins.sparql.processor/)
+
+### Read provenance and comparisons
+
+Current container membership and version-specific classification are independent. A reviewed reclassification changes the current membership and adds a snapshot with its own classification. Prior snapshots retain their original classification. Unclassified resources still have history and lack a current container membership triple.
+
+The temporal sample selects the highest eligible version in each timeline using the same rules as the SQLite CLI. Observation time uses `repo:observedAt`, including later-accepted changes retrospectively. Repository time uses `prov:generatedAtTime`, recorded when the repository created the accepted snapshot. It approximates commit visibility. Phase 2 snapshots use the existing creation-time fallback for observation time. A valid timezone-aware `dateModified` from the source is exposed separately as `repo:sourceModifiedAt`; dates without an explicit instant remain only in the source metadata.
+
+The RDF comparison reports graph-level differences in ground triples and skips triples with blank-node terms. The Python metadata hash and JSON comparison still operate on stored JSON content. Different JSON-LD documents can yield equivalent RDF, and blank-node-aware dataset equivalence requires comparing graph structure and blank-node relationships. RDF exports materialize the whole selection in memory. Use selected-resource export or a reusable local dataset for repeated queries. JSON-LD fields without an RDF interpretation, including unresolved relative IRIs, remain in SQLite. Export reports non-IRI predicates that would require generalized RDF. Reproducing an export uses the same accepted snapshots, context baseline, and processing software. Equivalent exports can differ in blank-node labels and statement order. [Repository vocabulary](docs/repository-vocabulary.md)
