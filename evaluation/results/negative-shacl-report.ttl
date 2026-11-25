@@ -1,0 +1,13 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+[] a sh:ValidationReport ;
+    sh:conforms false ;
+    sh:result [ a sh:ValidationResult ;
+            sh:focusNode <https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9> ;
+            sh:resultMessage "Less than 1 values on <https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9>->repo:currentVersion" ;
+            sh:resultPath <https://example.org/oersi/vocab/currentVersion> ;
+            sh:resultSeverity sh:Violation ;
+            sh:sourceConstraintComponent sh:MinCountConstraintComponent ;
+            sh:sourceShape <urn:oersi:shapes:CurrentVersion> ] .
+

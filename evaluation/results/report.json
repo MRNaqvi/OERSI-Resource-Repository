@@ -1,0 +1,629 @@
+{
+  "benchmark": {
+    "resources": 4,
+    "review_outcomes": [
+      {
+        "accepted_version_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "decided_at": "2026-01-17T12:00:00.000000+00:00",
+        "observed_at": "2026-01-05T12:00:00.000000+00:00",
+        "resource_id": "oersi-fb246966e56e7e24cec9",
+        "status": "accepted"
+      }
+    ],
+    "versions": 7
+  },
+  "competency_questions": {
+    "executed_successfully": 10,
+    "matches_expected": 10,
+    "query_answer_correctness": 1.0,
+    "question_count": 10,
+    "questions": [
+      {
+        "actual": [
+          {
+            "resource": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160",
+            "title": "[SIMULATED] Benchmark course",
+            "version": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160/version/1"
+          }
+        ],
+        "bindings": {},
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "resource": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160",
+            "title": "[SIMULATED] Benchmark course",
+            "version": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160/version/1"
+          }
+        ],
+        "filters": {},
+        "id": "CQ1",
+        "missing": [],
+        "query": "list-courses.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "resource": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4",
+            "title": "Geographic Information System Basics",
+            "version": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4/version/1"
+          },
+          {
+            "resource": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+            "title": "Biology 1510: Biological Principles (Open Course)",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+          }
+        ],
+        "bindings": {},
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "resource": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4",
+            "title": "Geographic Information System Basics",
+            "version": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4/version/1"
+          },
+          {
+            "resource": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+            "title": "Biology 1510: Biological Principles (Open Course)",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+          }
+        ],
+        "filters": {},
+        "id": "CQ2",
+        "missing": [],
+        "query": "list-learning-materials.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+          }
+        ],
+        "bindings": {
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          }
+        },
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+          }
+        ],
+        "filters": {},
+        "id": "CQ3",
+        "missing": [],
+        "query": "current-metadata.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "object": "The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology",
+            "object@xml:lang": "en"
+          }
+        ],
+        "bindings": {
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "value": 1
+          }
+        },
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "object": "The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology",
+            "object@xml:lang": "en"
+          }
+        ],
+        "filters": {
+          "predicate": "http://schema.org/description",
+          "subject": "http://bio1510.biology.gatech.edu/"
+        },
+        "id": "CQ4",
+        "missing": [],
+        "query": "historical-metadata.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/1",
+            "isCurrent": "false",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1",
+            "versionNumber": "1"
+          },
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/2",
+            "isCurrent": "false",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/2",
+            "versionNumber": "2"
+          },
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "isCurrent": "false",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "versionNumber": "3"
+          },
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "isCurrent": "true",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "versionNumber": "4"
+          }
+        ],
+        "bindings": {
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          }
+        },
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/1",
+            "isCurrent": "false",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1",
+            "versionNumber": "1"
+          },
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/2",
+            "isCurrent": "false",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/2",
+            "versionNumber": "2"
+          },
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "isCurrent": "false",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "versionNumber": "3"
+          },
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "isCurrent": "true",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "versionNumber": "4"
+          }
+        ],
+        "filters": {},
+        "id": "CQ5",
+        "missing": [],
+        "query": "list-versions.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "change": "added",
+            "object": "[SIMULATED PHASE 5] Revised description",
+            "object@xml:lang": "en",
+            "predicate": "http://schema.org/description",
+            "subject": "http://bio1510.biology.gatech.edu/"
+          },
+          {
+            "change": "removed",
+            "object": "The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology",
+            "object@xml:lang": "en",
+            "predicate": "http://schema.org/description",
+            "subject": "http://bio1510.biology.gatech.edu/"
+          }
+        ],
+        "bindings": {
+          "fromVersion": {
+            "type": "integer",
+            "value": 1
+          },
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          },
+          "toVersion": {
+            "type": "integer",
+            "value": 2
+          }
+        },
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "change": "added",
+            "object": "[SIMULATED PHASE 5] Revised description",
+            "object@xml:lang": "en",
+            "predicate": "http://schema.org/description",
+            "subject": "http://bio1510.biology.gatech.edu/"
+          },
+          {
+            "change": "removed",
+            "object": "The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology",
+            "object@xml:lang": "en",
+            "predicate": "http://schema.org/description",
+            "subject": "http://bio1510.biology.gatech.edu/"
+          }
+        ],
+        "filters": {},
+        "id": "CQ6",
+        "missing": [],
+        "query": "compare-version-triples.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "from": "courses",
+            "previous": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "resource": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+            "to": "learning_materials",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "versionNumber": "4"
+          }
+        ],
+        "bindings": {},
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "from": "courses",
+            "previous": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "resource": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+            "to": "learning_materials",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "versionNumber": "4"
+          }
+        ],
+        "filters": {},
+        "id": "CQ7",
+        "missing": [],
+        "query": "classification-changes.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "basis": "observation",
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "timestamp": "2026-01-05T12:00:00.000000+00:00",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "versionNumber": "4"
+          }
+        ],
+        "bindings": {
+          "at": {
+            "type": "time",
+            "value": "2026-01-15T12:00:00.000000+00:00"
+          },
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          }
+        },
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "basis": "observation",
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "timestamp": "2026-01-05T12:00:00.000000+00:00",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "versionNumber": "4"
+          }
+        ],
+        "filters": {
+          "basis": "observation"
+        },
+        "id": "CQ8",
+        "missing": [],
+        "query": "metadata-at-time.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "basis": "repository",
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "timestamp": "2026-01-13T12:00:00.000000+00:00",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "versionNumber": "3"
+          }
+        ],
+        "bindings": {
+          "at": {
+            "type": "time",
+            "value": "2026-01-15T12:00:00.000000+00:00"
+          },
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          }
+        },
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "basis": "repository",
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "timestamp": "2026-01-13T12:00:00.000000+00:00",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+            "versionNumber": "3"
+          }
+        ],
+        "filters": {
+          "basis": "repository"
+        },
+        "id": "CQ9",
+        "missing": [],
+        "query": "metadata-at-time.rq",
+        "unexpected": []
+      },
+      {
+        "actual": [
+          {
+            "created": "2026-01-11T12:00:00.000000+00:00",
+            "observed": "2026-01-01T12:00:00.000000+00:00",
+            "source": "http://bio1510.biology.gatech.edu/",
+            "sourceModified": null,
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1",
+            "versionNumber": "1"
+          }
+        ],
+        "bindings": {
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          },
+          "version": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1"
+          }
+        },
+        "correct": true,
+        "executed": true,
+        "expected": [
+          {
+            "created": "2026-01-11T12:00:00.000000+00:00",
+            "observed": "2026-01-01T12:00:00.000000+00:00",
+            "source": "http://bio1510.biology.gatech.edu/",
+            "sourceModified": null,
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1",
+            "versionNumber": "1"
+          }
+        ],
+        "filters": {},
+        "id": "CQ10",
+        "missing": [],
+        "query": "source-provenance.rq",
+        "unexpected": []
+      }
+    ]
+  },
+  "conforms": true,
+  "dataset": {
+    "default_graph_triples": 125,
+    "named_graphs": 7,
+    "total_quads": 522
+  },
+  "fidelity": {
+    "checked": true,
+    "checked_versions": 7,
+    "conforms": true,
+    "context_snapshot_sha256": "f9101d0d7707a4a89ff67d0498dfe4156ca9e1c9b2606fcfbd019b3ef5360993",
+    "equivalent_versions": 7,
+    "versions": [
+      {
+        "actual_graph_scopes": 1,
+        "actual_quads": 3,
+        "equivalent": true,
+        "expected_graph_scopes": 1,
+        "expected_quads": 3,
+        "missing_ground_quads": [],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-349567d2493e21e02d56/version/1",
+        "resource_iri": "https://example.org/oersi/resource/oersi-349567d2493e21e02d56",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-349567d2493e21e02d56/version/1"
+      },
+      {
+        "actual_graph_scopes": 1,
+        "actual_quads": 3,
+        "equivalent": true,
+        "expected_graph_scopes": 1,
+        "expected_quads": 3,
+        "missing_ground_quads": [],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-9026a0c99f04446f6160/version/1",
+        "resource_iri": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160/version/1"
+      },
+      {
+        "actual_graph_scopes": 1,
+        "actual_quads": 80,
+        "equivalent": true,
+        "expected_graph_scopes": 1,
+        "expected_quads": 80,
+        "missing_ground_quads": [],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-fa2ea2f5cb82b1d01dc4/version/1",
+        "resource_iri": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4/version/1"
+      },
+      {
+        "actual_graph_scopes": 1,
+        "actual_quads": 81,
+        "equivalent": true,
+        "expected_graph_scopes": 1,
+        "expected_quads": 81,
+        "missing_ground_quads": [],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/1",
+        "resource_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1"
+      },
+      {
+        "actual_graph_scopes": 1,
+        "actual_quads": 81,
+        "equivalent": true,
+        "expected_graph_scopes": 1,
+        "expected_quads": 81,
+        "missing_ground_quads": [],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/2",
+        "resource_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/2"
+      },
+      {
+        "actual_graph_scopes": 1,
+        "actual_quads": 81,
+        "equivalent": true,
+        "expected_graph_scopes": 1,
+        "expected_quads": 81,
+        "missing_ground_quads": [],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/3",
+        "resource_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3"
+      },
+      {
+        "actual_graph_scopes": 1,
+        "actual_quads": 68,
+        "equivalent": true,
+        "expected_graph_scopes": 1,
+        "expected_quads": 68,
+        "missing_ground_quads": [],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "resource_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+      }
+    ]
+  },
+  "integrity": {
+    "by_code": {},
+    "conforms": true,
+    "unregistered_declared_graphs": [],
+    "violation_count": 0,
+    "violations": []
+  },
+  "negative_examples": [
+    {
+      "case": "missing current pointer",
+      "detected": true,
+      "layer": "SHACL",
+      "violations": [
+        {
+          "constraint": "<http://www.w3.org/ns/shacl#MinCountConstraintComponent>",
+          "focus": "<https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9>",
+          "messages": [
+            "Less than 1 values on <https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9>->repo:currentVersion"
+          ],
+          "path": "<https://example.org/oersi/vocab/currentVersion>",
+          "severity": "<http://www.w3.org/ns/shacl#Violation>",
+          "shape": "<urn:oersi:shapes:CurrentVersion>"
+        }
+      ]
+    },
+    {
+      "case": "broken predecessor",
+      "detected": true,
+      "layer": "repository integrity",
+      "violations": [
+        {
+          "code": "predecessor",
+          "focus": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+          "message": "Version 1 has no predecessor. Later versions link to N-1"
+        }
+      ]
+    },
+    {
+      "case": "missing description quad",
+      "detected": true,
+      "layer": "source fidelity",
+      "violations": {
+        "actual_graph_scopes": 1,
+        "actual_quads": 80,
+        "equivalent": false,
+        "error": "RDF terms or blank-node relationships differ across the version's graph scopes",
+        "expected_graph_scopes": 1,
+        "expected_quads": 81,
+        "missing_ground_quads": [
+          "<http://bio1510.biology.gatech.edu/> <http://schema.org/description> \"\"\"The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology\"\"\"@en ."
+        ],
+        "primary_graph_iri": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/1",
+        "resource_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+        "scope_errors": [],
+        "unexpected_ground_quads": [],
+        "version_iri": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1"
+      }
+    },
+    {
+      "case": "wrong answer after removing current pointer",
+      "detected": true,
+      "layer": "competency questions",
+      "violations": {
+        "actual": [],
+        "bindings": {
+          "resource": {
+            "type": "iri",
+            "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+          }
+        },
+        "correct": false,
+        "executed": true,
+        "expected": [
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+          }
+        ],
+        "filters": {},
+        "id": "CQ3",
+        "missing": [
+          {
+            "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+            "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+          }
+        ],
+        "query": "current-metadata.rq",
+        "unexpected": []
+      }
+    }
+  ],
+  "passed": true,
+  "read_only_checks": {
+    "historical_snapshots_unchanged": true,
+    "sqlite_bytes_unchanged": true
+  },
+  "round_trips": {
+    "nquads": {
+      "conforms": true,
+      "equivalent": true,
+      "query_answers_preserved": true
+    },
+    "trig": {
+      "conforms": true,
+      "equivalent": true,
+      "query_answers_preserved": true
+    }
+  },
+  "shacl": {
+    "conforms": true,
+    "violations": []
+  }
+}

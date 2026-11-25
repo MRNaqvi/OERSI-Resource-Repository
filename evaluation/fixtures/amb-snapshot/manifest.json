@@ -1,0 +1,11 @@
+{
+  "format": "oersi-jsonld-contexts-v1",
+  "acquired_at": "2026-11-25T13:27:50.542413+00:00",
+  "contexts": [
+    {
+      "url": "https://w3id.org/kim/amb/context.jsonld",
+      "document_url": "https://dini-ag-kim.github.io/amb/context.jsonld",
+      "sha256": "d3bb408c621418a5dac1b880bbb813bf877117b2b2bbcc58fd67401d93e0e83a"
+    }
+  ]
+}

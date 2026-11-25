@@ -1,0 +1,45 @@
+{
+  "approved_context_sha256": "f9101d0d7707a4a89ff67d0498dfe4156ca9e1c9b2606fcfbd019b3ef5360993",
+  "resources": {
+    "course": {
+      "file": "course.jsonld",
+      "provenance": "genuine OERSI source record"
+    },
+    "material": {
+      "file": "material.jsonld",
+      "provenance": "genuine OERSI source record"
+    },
+    "simulated_course": {
+      "file": "simulated-course.jsonld",
+      "provenance": "synthetic benchmark fixture"
+    },
+    "unclassified": {
+      "file": "simulated-unclassified.jsonld",
+      "provenance": "synthetic benchmark fixture"
+    }
+  },
+  "initial_observed_at": "2026-01-01T12:00:00.000000+00:00",
+  "initial_created_at": "2026-01-11T12:00:00.000000+00:00",
+  "course_events": [
+    {
+      "observed_day": 2,
+      "repository_day": 12,
+      "description": "[SIMULATED PHASE 5] Revised description"
+    },
+    {
+      "observed_day": 3,
+      "repository_day": 12,
+      "description": "[SIMULATED PHASE 5] Revised description"
+    },
+    {
+      "observed_day": 4,
+      "repository_day": 13
+    },
+    {
+      "observed_day": 5,
+      "repository_day": 14,
+      "classification": "textbook",
+      "accept_day": 17
+    }
+  ]
+}

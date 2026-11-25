@@ -1,0 +1,7 @@
+{
+  "@context": ["https://w3id.org/kim/amb/context.jsonld", {"@language": "en"}],
+  "id": "https://example.test/oersi-benchmark/course",
+  "type": ["LearningResource"],
+  "name": "[SIMULATED] Benchmark course",
+  "learningResourceType": [{"id": "https://w3id.org/kim/hcrt/course"}]
+}

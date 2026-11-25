@@ -1,0 +1,140 @@
+{
+  "image": "https://oer.galileo.usg.edu/assets/md5images/d30f8728941c6f00f1f42d83e80050e5.png",
+  "creator": [
+    {
+      "name": "Chrissy Spencer",
+      "type": "Person"
+    },
+    {
+      "name": "Jung Choi",
+      "type": "Person"
+    },
+    {
+      "name": "Shana Kerr",
+      "type": "Person"
+    }
+  ],
+  "keywords": [
+    "biology",
+    "introductory biology",
+    "Biology"
+  ],
+  "about": [
+    {
+      "prefLabel": {
+        "cs": "Biologie",
+        "de": "Biologie",
+        "sv": "Biologi",
+        "fi": "Biologia",
+        "uk": "Біологія",
+        "el": "Βιολογία",
+        "sk": "Biológia",
+        "en": "Biology",
+        "it": "Biologia",
+        "fr": "Biologie",
+        "es": "Biología"
+      },
+      "id": "https://w3id.org/kim/hochschulfaechersystematik/n42"
+    },
+    {
+      "prefLabel": {
+        "cs": "Matematika, přírodní vědy",
+        "de": "Mathematik, Naturwissenschaften",
+        "sv": "Matematik och naturvetenskaper",
+        "fi": "Matematiikka, luonnontieteet",
+        "uk": "Математика, природничі науки",
+        "el": "Μαθηματικά, Φυσικές Επιστήμες",
+        "sk": "Matematika, prírodné vedy",
+        "en": "Mathematics, Natural Sciences",
+        "it": "Matematica, Scienze Naturali",
+        "fr": "Mathématiques, sciences naturelles",
+        "es": "Matemáticas y Ciencias Naturales"
+      },
+      "id": "https://w3id.org/kim/hochschulfaechersystematik/n4"
+    }
+  ],
+  "description": "The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology",
+  "inLanguage": [
+    "en"
+  ],
+  "isAccessibleForFree": true,
+  "type": [
+    "LearningResource"
+  ],
+  "mainEntityOfPage": [
+    {
+      "provider": {
+        "name": "ALG Commons",
+        "id": "https://oer.galileo.usg.edu",
+        "type": "Service"
+      },
+      "dateModified": "2017-07-18",
+      "id": "https://oer.galileo.usg.edu/biology-ancillary/3",
+      "type": "WebContent"
+    }
+  ],
+  "@context": [
+    "https://w3id.org/kim/amb/context.jsonld",
+    {
+      "@language": "en"
+    }
+  ],
+  "datePublished": "2017-07-01",
+  "conditionsOfAccess": {
+    "prefLabel": {
+      "cs": "přihlášení není vyžadováno",
+      "de": "keine Anmeldung erforderlich",
+      "uk": "вхід без авторизації",
+      "en": "no login required",
+      "nl": "geen login vereist"
+    },
+    "id": "http://w3id.org/kim/conditionsOfAccess/no_login"
+  },
+  "license": {
+    "id": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+  },
+  "name": "Biology 1510: Biological Principles (Open Course)",
+  "sourceOrganization": [
+    {
+      "name": "Georgia Institute of Technology",
+      "location": [
+        {
+          "address": {
+            "addressCountry": "US",
+            "addressLocality": "Atlanta",
+            "addressRegion": "Georgia"
+          }
+        }
+      ],
+      "id": "https://ror.org/01zkghx44",
+      "type": "Organization"
+    }
+  ],
+  "publisher": [
+    {
+      "name": "ALG Commons",
+      "type": "Organization"
+    }
+  ],
+  "id": "http://bio1510.biology.gatech.edu/",
+  "learningResourceType": [
+    {
+      "prefLabel": {
+        "de": "Kurs",
+        "sv": "Kurs",
+        "fi": "Kurssi",
+        "el": "Μάθημα",
+        "en": "Course",
+        "it": "Corso",
+        "fr": "Cours",
+        "es": "Curso",
+        "cs": "Kurz",
+        "uk": "Курс",
+        "sk": "Kurz",
+        "da": "Kursus",
+        "nl": "Cursus"
+      },
+      "id": "https://w3id.org/kim/hcrt/course"
+    }
+  ]
+}

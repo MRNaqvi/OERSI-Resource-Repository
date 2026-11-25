@@ -1,0 +1,74 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix repo: <https://example.org/oersi/vocab/> .
+@prefix shape: <urn:oersi:shapes:> .
+
+shape:Resource a sh:NodeShape ;
+    sh:targetClass repo:Resource ;
+    sh:targetSubjectsOf repo:currentVersion, dcterms:hasVersion ;
+    sh:targetObjectsOf dcterms:isVersionOf ;
+    sh:nodeKind sh:IRI ;
+    sh:class repo:Resource ;
+    sh:property shape:CurrentVersion, shape:HasVersion, shape:RepositoryIdentifier, shape:ContainerMembership .
+
+shape:CurrentVersion sh:path repo:currentVersion ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ; sh:class repo:Version .
+shape:HasVersion sh:path dcterms:hasVersion ; sh:minCount 1 ;
+    sh:nodeKind sh:IRI ; sh:class repo:Version .
+shape:RepositoryIdentifier sh:path dcterms:identifier ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:pattern "^oersi-[a-f0-9]{20}$" .
+shape:ContainerMembership sh:path dcterms:isPartOf ; sh:maxCount 1 ;
+    sh:nodeKind sh:IRI ; sh:class repo:Container .
+
+shape:Version a sh:NodeShape ;
+    sh:targetClass repo:Version ;
+    sh:targetSubjectsOf dcterms:isVersionOf, repo:graphIRI, repo:versionNumber ;
+    sh:targetObjectsOf repo:currentVersion, dcterms:hasVersion, prov:wasRevisionOf ;
+    sh:nodeKind sh:IRI ;
+    sh:class repo:Version ;
+    sh:property shape:VersionOwner, shape:VersionNumber, shape:PrimaryGraph, shape:OriginalSource,
+        shape:CreatedAt, shape:ObservedAt, shape:VersionClassification, shape:MetadataHash,
+        shape:SourceModifiedAt, shape:PreviousVersion, shape:IsCurrent .
+
+shape:VersionOwner sh:path dcterms:isVersionOf ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ; sh:class repo:Resource .
+shape:VersionNumber sh:path repo:versionNumber ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 1 .
+shape:PrimaryGraph sh:path repo:graphIRI ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI .
+shape:OriginalSource sh:path dcterms:source ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI .
+shape:CreatedAt sh:path prov:generatedAtTime ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:dateTime .
+shape:ObservedAt sh:path repo:observedAt ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:dateTime .
+shape:VersionClassification sh:path repo:classification ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ; sh:class repo:Classification .
+shape:MetadataHash sh:path repo:metadataHash ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ; sh:pattern "^[a-f0-9]{64}$" .
+shape:SourceModifiedAt sh:path repo:sourceModifiedAt ;
+    sh:maxCount 1 ; sh:datatype xsd:dateTime .
+shape:PreviousVersion sh:path prov:wasRevisionOf ;
+    sh:maxCount 1 ; sh:nodeKind sh:IRI ; sh:class repo:Version .
+shape:IsCurrent sh:path repo:isCurrent ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:boolean .
+
+shape:Classification a sh:NodeShape ;
+    sh:targetClass repo:Classification ;
+    sh:targetObjectsOf repo:classification ;
+    sh:nodeKind sh:IRI ; sh:class repo:Classification ;
+    sh:property shape:ClassificationCode .
+shape:ClassificationCode sh:path dcterms:identifier ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+    sh:in ( "courses" "learning_materials" "unclassified" ) .
+
+shape:Container a sh:NodeShape ;
+    sh:targetClass repo:Container ;
+    sh:targetObjectsOf dcterms:isPartOf ;
+    sh:nodeKind sh:IRI ; sh:class repo:Container ;
+    sh:property shape:ContainerCode .
+shape:ContainerCode sh:path dcterms:identifier ;
+    sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+    sh:in ( "courses" "learning_materials" ) .
