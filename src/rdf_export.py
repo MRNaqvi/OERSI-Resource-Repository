@@ -173,10 +173,19 @@ def _add_resource(
 
 def build_dataset(repository: Repository, identifier: str | None = None, *, contexts: ContextSnapshot) -> Dataset:
     """Materialize per-version source graphs using only an approved snapshot."""
-    snapshot = repository.export_snapshot(identifier)
+    return dataset_from_snapshot(
+        repository.export_snapshot(identifier), base_iri=repository.base_iri,
+        vocabulary_iri=repository.vocabulary_iri, contexts=contexts,
+    )
+
+
+def dataset_from_snapshot(
+    snapshot: dict[str, Any], *, base_iri: str, vocabulary_iri: str, contexts: ContextSnapshot,
+) -> Dataset:
+    """Use an already-read snapshot for export and validation of the same rows."""
     loader = contexts.loader()
     dataset = Dataset(default_union=False)
-    repo = Namespace(repository.vocabulary_iri)
+    repo = Namespace(vocabulary_iri)
     for prefix, namespace in (
         ("repo", repo), ("rdf", RDF), ("rdfs", RDFS), ("dcterms", DCTERMS), ("prov", PROV), ("xsd", XSD),
     ):
@@ -195,7 +204,7 @@ def build_dataset(repository: Repository, identifier: str | None = None, *, cont
     labels = {row["container_id"]: row["name"] for row in snapshot["containers"]}
     labels["unclassified"] = "Unclassified"
     for category, label in labels.items():
-        classification = classifications[category] = URIRef(f"{repository.base_iri}/classification/{category}")
+        classification = classifications[category] = URIRef(f"{base_iri}/classification/{category}")
         default.add((classification, RDF.type, repo.Classification))
         default.add((classification, DCTERMS.identifier, Literal(category)))
         default.add((classification, RDFS.label, Literal(label)))
@@ -258,6 +267,16 @@ def load_dataset(input_path: Path | str) -> Dataset:
     if format is None:
         raise ValueError("RDF input must be a local .trig or .nq file")
     data = path.read_bytes()
+    try:
+        return parse_dataset(data, format=format, publicID=path.resolve().as_uri())
+    except Exception as exc:
+        raise ValueError(f"Invalid {format} dataset {path}: {exc}") from exc
+
+
+def parse_dataset(data: bytes | str, *, format: str, **options: Any) -> Dataset:
+    """Parse local dataset syntax while retaining literal lexical forms."""
+    if format not in FORMATS:
+        raise ValueError("Only TriG and N-Quads dataset syntax is supported")
     dataset = Dataset(default_union=False)
     # RDFLib exposes its typed-literal normalization switch at module scope.
     # Preserve lexical forms written by the exporter and restore the caller's setting.
@@ -265,9 +284,7 @@ def load_dataset(input_path: Path | str) -> Dataset:
         previous = rdflib.NORMALIZE_LITERALS
         rdflib.NORMALIZE_LITERALS = False
         try:
-            dataset.parse(data=data, format=format, publicID=path.resolve().as_uri())
-        except Exception as exc:
-            raise ValueError(f"Invalid {format} dataset {path}: {exc}") from exc
+            dataset.parse(data=data, format=format, **options)
         finally:
             rdflib.NORMALIZE_LITERALS = previous
     return dataset

@@ -253,3 +253,14 @@ Current container membership and version-specific classification are independent
 The temporal sample selects the highest eligible version in each timeline using the same rules as the SQLite CLI. Observation time uses `repo:observedAt`, including later-accepted changes retrospectively. Repository time uses `prov:generatedAtTime`, recorded when the repository created the accepted snapshot. It approximates commit visibility. Phase 2 snapshots use the existing creation-time fallback for observation time. A valid timezone-aware `dateModified` from the source is exposed separately as `repo:sourceModifiedAt`; dates without an explicit instant remain only in the source metadata.
 
 The RDF comparison reports graph-level differences in ground triples and skips triples with blank-node terms. The Python metadata hash and JSON comparison still operate on stored JSON content. Different JSON-LD documents can yield equivalent RDF, and blank-node-aware dataset equivalence requires comparing graph structure and blank-node relationships. RDF exports materialize the whole selection in memory. Use selected-resource export or a reusable local dataset for repeated queries. JSON-LD fields without an RDF interpretation, including unresolved relative IRIs, remain in SQLite. Export reports non-IRI predicates that would require generalized RDF. Reproducing an export uses the same accepted snapshots, context baseline, and processing software. Equivalent exports can differ in blank-node labels and statement order. [Repository vocabulary](docs/repository-vocabulary.md)
+
+## Semantic validation and competency questions
+
+Validate a local TriG or N-Quads file with SHACL and repository integrity checks. SQLite-backed validation can also compare every version's RDF to its stored JSON-LD using an approved pinned context baseline.
+
+```bash
+python -m src.semantic_validation_cli validate --input /path/to/repository.trig
+python -m src.semantic_validation_cli evaluate --output-dir /path/to/new-evaluation
+```
+
+See the [validation guide](docs/semantic-validation.md), [competency-question catalogue](evaluation/competency-questions.md), and [evaluation report](evaluation/PHASE5_EVALUATION_REPORT.md).

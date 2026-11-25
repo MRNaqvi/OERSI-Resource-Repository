@@ -1,0 +1,290 @@
+[
+  {
+    "id": "CQ1",
+    "query": "list-courses.rq",
+    "columns": [
+      "resource",
+      "title",
+      "version"
+    ],
+    "expected": [
+      {
+        "resource": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160",
+        "title": "[SIMULATED] Benchmark course",
+        "version": "https://example.org/oersi/resource/oersi-9026a0c99f04446f6160/version/1"
+      }
+    ]
+  },
+  {
+    "id": "CQ2",
+    "query": "list-learning-materials.rq",
+    "columns": [
+      "resource",
+      "title",
+      "version"
+    ],
+    "expected": [
+      {
+        "resource": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+        "title": "Biology 1510: Biological Principles (Open Course)",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4"
+      },
+      {
+        "resource": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4",
+        "title": "Geographic Information System Basics",
+        "version": "https://example.org/oersi/resource/oersi-fa2ea2f5cb82b1d01dc4/version/1"
+      }
+    ]
+  },
+  {
+    "id": "CQ3",
+    "query": "current-metadata.rq",
+    "bind": {
+      "resource": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+      }
+    },
+    "columns": [
+      "version",
+      "graph"
+    ],
+    "expected": [
+      {
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4"
+      }
+    ]
+  },
+  {
+    "id": "CQ4",
+    "query": "historical-metadata.rq",
+    "bind": {
+      "resource": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+      },
+      "versionNumber": {
+        "type": "integer",
+        "value": 1
+      }
+    },
+    "filter": {
+      "subject": "http://bio1510.biology.gatech.edu/",
+      "predicate": "http://schema.org/description"
+    },
+    "columns": [
+      "object",
+      "object@xml:lang"
+    ],
+    "expected": [
+      {
+        "object": "The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology",
+        "object@xml:lang": "en"
+      }
+    ]
+  },
+  {
+    "id": "CQ5",
+    "query": "list-versions.rq",
+    "bind": {
+      "resource": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+      }
+    },
+    "columns": [
+      "versionNumber",
+      "version",
+      "graph",
+      "isCurrent"
+    ],
+    "expected": [
+      {
+        "versionNumber": "1",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1",
+        "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/1",
+        "isCurrent": "false"
+      },
+      {
+        "versionNumber": "2",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/2",
+        "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/2",
+        "isCurrent": "false"
+      },
+      {
+        "versionNumber": "3",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+        "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/3",
+        "isCurrent": "false"
+      },
+      {
+        "versionNumber": "4",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "isCurrent": "true"
+      }
+    ]
+  },
+  {
+    "id": "CQ6",
+    "query": "compare-version-triples.rq",
+    "bind": {
+      "resource": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+      },
+      "fromVersion": {
+        "type": "integer",
+        "value": 1
+      },
+      "toVersion": {
+        "type": "integer",
+        "value": 2
+      }
+    },
+    "columns": [
+      "change",
+      "subject",
+      "predicate",
+      "object",
+      "object@xml:lang"
+    ],
+    "expected": [
+      {
+        "change": "removed",
+        "subject": "http://bio1510.biology.gatech.edu/",
+        "predicate": "http://schema.org/description",
+        "object": "The following open course was created under an Affordable Learning Georgia Textbook Transformation Grant:\nhttp://oer.galileo.usg.edu/biology-collections/13/\nIncluded are four units containing multiple modules:   Molecules and Metabolism Genes and Genomes Evolution Ecology",
+        "object@xml:lang": "en"
+      },
+      {
+        "change": "added",
+        "subject": "http://bio1510.biology.gatech.edu/",
+        "predicate": "http://schema.org/description",
+        "object": "[SIMULATED PHASE 5] Revised description",
+        "object@xml:lang": "en"
+      }
+    ]
+  },
+  {
+    "id": "CQ7",
+    "query": "classification-changes.rq",
+    "columns": [
+      "resource",
+      "versionNumber",
+      "previous",
+      "version",
+      "from",
+      "to"
+    ],
+    "expected": [
+      {
+        "resource": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9",
+        "versionNumber": "4",
+        "previous": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "from": "courses",
+        "to": "learning_materials"
+      }
+    ]
+  },
+  {
+    "id": "CQ8",
+    "query": "metadata-at-time.rq",
+    "bind": {
+      "resource": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+      },
+      "at": {
+        "type": "time",
+        "value": "2026-01-15T12:00:00.000000+00:00"
+      }
+    },
+    "filter": {
+      "basis": "observation"
+    },
+    "columns": [
+      "basis",
+      "versionNumber",
+      "version",
+      "graph",
+      "timestamp"
+    ],
+    "expected": [
+      {
+        "basis": "observation",
+        "versionNumber": "4",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/4",
+        "timestamp": "2026-01-05T12:00:00.000000+00:00"
+      }
+    ]
+  },
+  {
+    "id": "CQ9",
+    "query": "metadata-at-time.rq",
+    "bind": {
+      "resource": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+      },
+      "at": {
+        "type": "time",
+        "value": "2026-01-15T12:00:00.000000+00:00"
+      }
+    },
+    "filter": {
+      "basis": "repository"
+    },
+    "columns": [
+      "basis",
+      "versionNumber",
+      "version",
+      "graph",
+      "timestamp"
+    ],
+    "expected": [
+      {
+        "basis": "repository",
+        "versionNumber": "3",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/3",
+        "graph": "https://example.org/oersi/graph/resource/oersi-fb246966e56e7e24cec9/version/3",
+        "timestamp": "2026-01-13T12:00:00.000000+00:00"
+      }
+    ]
+  },
+  {
+    "id": "CQ10",
+    "query": "source-provenance.rq",
+    "bind": {
+      "resource": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9"
+      },
+      "version": {
+        "type": "iri",
+        "value": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1"
+      }
+    },
+    "columns": [
+      "versionNumber",
+      "version",
+      "source",
+      "sourceModified",
+      "created",
+      "observed"
+    ],
+    "expected": [
+      {
+        "versionNumber": "1",
+        "version": "https://example.org/oersi/resource/oersi-fb246966e56e7e24cec9/version/1",
+        "source": "http://bio1510.biology.gatech.edu/",
+        "sourceModified": null,
+        "created": "2026-01-11T12:00:00.000000+00:00",
+        "observed": "2026-01-01T12:00:00.000000+00:00"
+      }
+    ]
+  }
+]

@@ -1,0 +1,134 @@
+{
+  "image": "https://cdn2.repo.bccws.ca/assets/covers/textbooks/138/large_cover_textbook_138_2b57b84588.jpg",
+  "audience": [
+    {
+      "prefLabel": {
+        "cs": "učitel",
+        "de": "Lehrperson",
+        "fi": "Opettaja",
+        "uk": "вчитель",
+        "en": "http://purl.org/dcx/lrmi-vocabs/educationalAudienceRole/teacher",
+        "fr": "enseignant",
+        "da": "lærer",
+        "es": "profesor",
+        "nl": "onderwijzer"
+      },
+      "id": "http://purl.org/dcx/lrmi-vocabs/educationalAudienceRole/teacher"
+    },
+    {
+      "prefLabel": {
+        "cs": "student",
+        "de": "Lernende",
+        "fi": "Oppija",
+        "uk": "студент",
+        "en": "http://purl.org/dcx/lrmi-vocabs/educationalAudienceRole/student",
+        "fr": "étudiant",
+        "da": "student/elev",
+        "es": "estudiante",
+        "nl": "student"
+      },
+      "id": "http://purl.org/dcx/lrmi-vocabs/educationalAudienceRole/student"
+    }
+  ],
+  "about": [
+    {
+      "prefLabel": {
+        "cs": "Geografie",
+        "de": "Geographie",
+        "sv": "Geografi",
+        "fi": "Maantiede",
+        "uk": "Географія",
+        "el": "Γεωγραφία",
+        "sk": "Geografia",
+        "en": "Geography",
+        "it": "Geografia",
+        "fr": "Géographie",
+        "es": "Geografía"
+      },
+      "id": "https://w3id.org/kim/hochschulfaechersystematik/n44"
+    },
+    {
+      "prefLabel": {
+        "cs": "Matematika, přírodní vědy",
+        "de": "Mathematik, Naturwissenschaften",
+        "sv": "Matematik och naturvetenskaper",
+        "fi": "Matematiikka, luonnontieteet",
+        "uk": "Математика, природничі науки",
+        "el": "Μαθηματικά, Φυσικές Επιστήμες",
+        "sk": "Matematika, prírodné vedy",
+        "en": "Mathematics, Natural Sciences",
+        "it": "Matematica, Scienze Naturali",
+        "fr": "Mathématiques, sciences naturelles",
+        "es": "Matemáticas y Ciencias Naturales"
+      },
+      "id": "https://w3id.org/kim/hochschulfaechersystematik/n4"
+    }
+  ],
+  "description": "Essentials of Geographic Information Systems integrates key concepts behind the technology with practical concerns and real-world applications. Recognizing that many potential GIS users are nonspecialists or may only need a few maps, this book is designed to be accessible, pragmatic, and concise. Essentials of Geographic Information Systems also illustrates how GIS is used to ask questions, inform choices, and guide policy. From the melting of the polar ice caps to privacy issues associated with mapping, this book provides a gentle, yet substantive, introduction to the use and application of digital maps, mapping, and GIS.",
+  "inLanguage": [
+    "en"
+  ],
+  "isAccessibleForFree": true,
+  "type": [
+    "LearningResource"
+  ],
+  "mainEntityOfPage": [
+    {
+      "provider": {
+        "name": "BC Campus",
+        "id": "https://bccampus.ca/",
+        "type": "Service"
+      },
+      "id": "https://collection.bccampus.ca/textbook/RcnJqjpp",
+      "type": "WebContent"
+    }
+  ],
+  "@context": [
+    "https://w3id.org/kim/amb/context.jsonld",
+    {
+      "@language": "en"
+    }
+  ],
+  "datePublished": "2012-06-03",
+  "conditionsOfAccess": {
+    "prefLabel": {
+      "cs": "přihlášení není vyžadováno",
+      "de": "keine Anmeldung erforderlich",
+      "uk": "вхід без авторизації",
+      "en": "no login required",
+      "nl": "geen login vereist"
+    },
+    "id": "http://w3id.org/kim/conditionsOfAccess/no_login"
+  },
+  "license": {
+    "id": "https://creativecommons.org/licenses/by-nc-sa/3.0/"
+  },
+  "name": "Geographic Information System Basics",
+  "publisher": [
+    {
+      "name": "Saylor Academy",
+      "type": "Organization"
+    }
+  ],
+  "id": "http://2012books.lardbucket.org/books/geographic-information-system-basics/index.html",
+  "learningResourceType": [
+    {
+      "prefLabel": {
+        "de": "Lehrbuch",
+        "sv": "Lärobok",
+        "fi": "Oppikirja",
+        "el": "Διδακτικό Βιβλίο",
+        "en": "Textbook",
+        "it": "Libro di Testo",
+        "fr": "Manuel",
+        "es": "Libro de texto",
+        "cs": "Učebnice",
+        "uk": "Підручник",
+        "sk": "Učebnica",
+        "da": "Lærebog",
+        "nl": "Studieboek"
+      },
+      "id": "https://w3id.org/kim/hcrt/textbook"
+    }
+  ]
+}
