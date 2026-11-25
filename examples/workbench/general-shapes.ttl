@@ -1,0 +1,10 @@
+@prefix ex: <https://example.test/collection/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix schema: <http://schema.org/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+ex:ResourceShape a sh:NodeShape ;
+    sh:targetClass schema:LearningResource ;
+    sh:property [ sh:path dcterms:title ; sh:minCount 1 ] ;
+    sh:property [ sh:path dcterms:license ; sh:minCount 1 ;
+                  sh:message "A learning resource in this experiment needs a license statement." ] .

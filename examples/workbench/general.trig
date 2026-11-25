@@ -1,0 +1,19 @@
+@prefix ex: <https://example.test/collection/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix schema: <http://schema.org/> .
+
+ex:field-guide a schema:LearningResource ;
+    dcterms:title "Field guide to coastal ecosystems"@en ;
+    schema:description "Simulated metadata for the RDF upload demonstration."@en .
+
+ex:contributors {
+    ex:field-guide dcterms:creator ex:lab ;
+        dcterms:title "Field guide to coastal ecosystems"@en .
+    ex:lab a schema:Organization ;
+        schema:name "Example research lab"@en .
+}
+
+ex:topics {
+    ex:field-guide dcterms:subject ex:coastal-ecology .
+    ex:coastal-ecology schema:name "Coastal ecology"@en .
+}
