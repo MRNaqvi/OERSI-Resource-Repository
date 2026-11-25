@@ -12,6 +12,7 @@ from rdflib.plugins.sparql.algebra import translateQuery
 from rdflib.plugins.sparql.parser import parseQuery
 from rdflib.plugins.sparql.parserutils import CompValue
 from rdflib.plugins.sparql.sparql import Query
+from rdflib.query import Result
 from rdflib.term import Identifier
 
 READ_QUERIES = {"SelectQuery", "AskQuery"}
@@ -45,15 +46,44 @@ def prepare_read_query(text: str, *, vocabulary_iri: str | None = None) -> Query
     return translateQuery(parsed, initNs=namespaces)
 
 
-def execute_read_query(
+def _evaluate_read_query(
     dataset: Dataset, query: Query, *, bindings: Mapping[str, Identifier] | None = None,
-) -> dict[str, Any] | bool:
+) -> Result:
     if query.algebra.name not in READ_QUERIES:
         raise ValueError("Only SPARQL SELECT and ASK queries are supported")
     _require_local_patterns(query.algebra)
     if dataset.default_union:
         raise ValueError("Local queries require a dataset with an independent default graph")
-    result = dataset.query(query, initBindings=bindings, use_store_provided=False)
+    return dataset.query(query, initBindings=bindings, use_store_provided=False)
+
+
+def execute_read_query(
+    dataset: Dataset, query: Query, *, bindings: Mapping[str, Identifier] | None = None,
+) -> dict[str, Any] | bool:
+    result = _evaluate_read_query(dataset, query, bindings=bindings)
     if result.type == "ASK":
         return bool(result.askAnswer)
     return json.loads(result.serialize(format="json"))
+
+
+def execute_bounded_read_query(
+    dataset: Dataset, query: Query, *, max_rows: int, bindings: Mapping[str, Identifier] | None = None,
+) -> tuple[dict[str, Any] | bool, bool]:
+    """Return the restricted query result and whether further SELECT rows existed."""
+    if query.algebra.name == "SelectQuery":
+        # Slice the final solution sequence, after the user's projection, order,
+        # and LIMIT/OFFSET. Fetch one extra solution to distinguish a full page.
+        select = dict(query.algebra)
+        select["p"] = CompValue("Slice", p=select["p"], start=0, length=max_rows + 1)
+        query = Query(query.prologue, CompValue("SelectQuery", **select))
+
+    result = _evaluate_read_query(dataset, query, bindings=bindings)
+    if result.type == "ASK":
+        return bool(result.askAnswer), False
+    # Accessing bindings materializes RDFLib's iterator. The outer slice bounds
+    # this list and preserves empty solution mappings as well as bound terms.
+    rows = result.bindings
+    truncated = len(rows) > max_rows
+    if truncated:
+        rows.pop()
+    return json.loads(result.serialize(format="json")), truncated

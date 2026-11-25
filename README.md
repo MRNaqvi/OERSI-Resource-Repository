@@ -264,3 +264,14 @@ python -m src.semantic_validation_cli evaluate --output-dir /path/to/new-evaluat
 ```
 
 See the [validation guide](docs/semantic-validation.md), [competency-question catalogue](evaluation/competency-questions.md), and [evaluation report](evaluation/PHASE5_EVALUATION_REPORT.md).
+
+## Local web workbench
+
+Phase 6 adds a research interface for repository history, RDF uploads, validation, local SPARQL, graph exploration, migrations, and pending reviews.
+
+```bash
+python -m pip install -r requirements.txt
+python -m streamlit run streamlit_app.py
+```
+
+See the [workbench guide](docs/phase6-workbench.md) for configuration, the controlled demonstration, and screenshots.
